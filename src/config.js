@@ -1,8 +1,13 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..');
-const DEFAULT_CONFIG_FILE = path.join(ROOT, 'promptrelay.json');
+const PACKAGE_ROOT = path.resolve(__dirname, '..');
+const USER_ROOT = path.resolve(
+  process.env.PROMPTRELAY_HOME || path.join(os.homedir(), '.promptrelay'),
+);
+const PACKAGE_CONFIG_FILE = path.join(PACKAGE_ROOT, 'promptrelay.json');
+const USER_CONFIG_FILE = path.join(USER_ROOT, 'promptrelay.json');
 
 const DEFAULTS = {
   server: {
@@ -12,7 +17,7 @@ const DEFAULTS = {
   prompt: {
     mode: 'replace',
     file: 'system_prompt.txt',
-    placeholder: '{Ekane tor intrison paste kot}',
+    placeholder: '{Paste your instructions here}',
   },
   provider: {
     name: 'OpenRouter',
@@ -59,7 +64,14 @@ function readJson(file) {
 }
 
 function resolveConfigFile() {
-  return path.resolve(process.env.PROMPTRELAY_CONFIG || DEFAULT_CONFIG_FILE);
+  if (process.env.PROMPTRELAY_CONFIG) {
+    return path.resolve(process.env.PROMPTRELAY_CONFIG);
+  }
+
+  const cwdConfig = path.resolve(process.cwd(), 'promptrelay.json');
+  if (fs.existsSync(cwdConfig)) return cwdConfig;
+  if (fs.existsSync(USER_CONFIG_FILE)) return USER_CONFIG_FILE;
+  return PACKAGE_CONFIG_FILE;
 }
 
 function normalizeBaseURL(value) {
@@ -95,10 +107,13 @@ function loadConfig() {
   config.provider.apiKeyEnv = apiKeyEnv;
   config.provider.apiKey = process.env[apiKeyEnv] || process.env.PROVIDER_API_KEY || '';
 
+  const configRoot = path.dirname(file);
   config.paths = {
-    root: ROOT,
+    root: configRoot,
+    packageRoot: PACKAGE_ROOT,
+    userRoot: USER_ROOT,
     configFile: file,
-    promptFile: path.resolve(ROOT, config.prompt.file || 'system_prompt.txt'),
+    promptFile: path.resolve(configRoot, config.prompt.file || 'system_prompt.txt'),
   };
 
   return config;
@@ -152,7 +167,9 @@ function safeConfig(config) {
 }
 
 module.exports = {
-  ROOT,
+  PACKAGE_ROOT,
+  USER_ROOT,
+  USER_CONFIG_FILE,
   DEFAULTS,
   loadConfig,
   validateConfig,
