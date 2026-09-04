@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const ENV_AT_START = { ...process.env };
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
 const USER_ROOT = path.resolve(
   process.env.PROMPTRELAY_HOME || path.join(os.homedir(), '.promptrelay'),
@@ -110,7 +111,10 @@ function loadEnvFile(file) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
 
     const value = unquoteEnv(line.slice(index + 1));
-    if (process.env[key] === undefined) process.env[key] = value;
+
+    // Values that existed before PromptRelay loaded always win.
+    // Values sourced from ~/.promptrelay/.env can therefore hot-reload safely.
+    if (ENV_AT_START[key] === undefined) process.env[key] = value;
   }
 }
 
@@ -119,7 +123,6 @@ function loadConfig() {
   const configRoot = path.dirname(file);
   const envFile = path.join(configRoot, '.env');
 
-  // ~/.promptrelay/.env is intentionally local-only. Real environment variables win.
   loadEnvFile(envFile);
 
   const fileConfig = fs.existsSync(file) ? readJson(file) : {};
