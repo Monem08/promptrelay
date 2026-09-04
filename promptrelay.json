@@ -6,7 +6,7 @@
   "prompt": {
     "mode": "replace",
     "file": "system_prompt.txt",
-    "placeholder": "{Ekane tor intrison paste kot}"
+    "placeholder": "{Paste your instructions here}"
   },
   "provider": {
     "name": "OpenRouter",
