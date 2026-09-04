@@ -1,0 +1,33 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4141
+  },
+  "prompt": {
+    "mode": "replace",
+    "file": "system_prompt.txt",
+    "placeholder": "{Ekane tor intrison paste kot}"
+  },
+  "provider": {
+    "name": "OpenRouter",
+    "transport": "openai-compatible",
+    "baseURL": "https://openrouter.ai/api/v1",
+    "model": "openrouter/auto",
+    "forceModel": true,
+    "apiKeyEnv": "PROVIDER_API_KEY",
+    "auth": {
+      "type": "bearer"
+    },
+    "headers": {
+      "HTTP-Referer": "https://github.com/Monem08/promptrelay",
+      "X-Title": "PromptRelay"
+    }
+  },
+  "reasoning": {
+    "default": "low",
+    "injectDefault": false
+  },
+  "logging": {
+    "requests": true
+  }
+}

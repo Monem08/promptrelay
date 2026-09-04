@@ -1,0 +1,29 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4141
+  },
+  "prompt": {
+    "mode": "replace",
+    "file": "system_prompt.txt"
+  },
+  "provider": {
+    "name": "My OpenAI-Compatible Provider",
+    "transport": "openai-compatible",
+    "baseURL": "https://api.example.com/v1",
+    "model": "my-model-id",
+    "forceModel": true,
+    "apiKeyEnv": "PROVIDER_API_KEY",
+    "auth": {
+      "type": "bearer"
+    },
+    "headers": {}
+  },
+  "reasoning": {
+    "default": "low",
+    "injectDefault": false
+  },
+  "logging": {
+    "requests": true
+  }
+}

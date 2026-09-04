@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "promptrelay/default",
+  "provider": {
+    "promptrelay": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "⚡ PromptRelay",
+      "options": {
+        "baseURL": "http://127.0.0.1:4141/v1",
+        "apiKey": "local-promptrelay"
+      },
+      "models": {
+        "default": {
+          "name": "PromptRelay Default",
+          "limit": {
+            "context": 200000,
+            "output": 32768
+          }
+        }
+      }
+    }
+  }
+}
