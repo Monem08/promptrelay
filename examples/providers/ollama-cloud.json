@@ -1,0 +1,31 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4141
+  },
+  "prompt": {
+    "mode": "replace",
+    "file": "system_prompt.txt"
+  },
+  "provider": {
+    "name": "Ollama Cloud",
+    "transport": "ollama-native",
+    "baseURL": "https://ollama.com",
+    "model": "glm-5.3-flash",
+    "forceModel": true,
+    "apiKeyEnv": "PROVIDER_API_KEY",
+    "auth": {
+      "type": "bearer"
+    },
+    "chatPath": "/api/chat",
+    "modelsPath": "/v1/models",
+    "headers": {}
+  },
+  "reasoning": {
+    "default": "low",
+    "injectDefault": true
+  },
+  "logging": {
+    "requests": true
+  }
+}

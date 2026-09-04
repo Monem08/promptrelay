@@ -1,0 +1,32 @@
+{
+  "name": "promptrelay",
+  "version": "1.0.0",
+  "description": "A provider-agnostic prompt gateway for OpenCode with custom system instructions, reasoning, streaming, and tool support.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "check": "node --check src/server.js && node --check src/config.js && node --check src/prompt.js && node --check src/reasoning.js && node --check src/http.js && node --check src/adapters/openai-compatible.js && node --check src/adapters/ollama-native.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "opencode",
+    "system-prompt",
+    "proxy",
+    "openrouter",
+    "ollama",
+    "openai-compatible",
+    "coding-agent",
+    "llm",
+    "prompt-gateway"
+  ],
+  "author": "Monem08",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

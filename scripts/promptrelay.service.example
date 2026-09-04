@@ -1,0 +1,17 @@
+[Unit]
+Description=PromptRelay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/promptrelay
+ExecStart=/usr/bin/node /opt/promptrelay/src/server.js
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/promptrelay.env
+Restart=always
+RestartSec=3
+User=promptrelay
+
+[Install]
+WantedBy=multi-user.target
