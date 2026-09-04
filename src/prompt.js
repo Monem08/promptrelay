@@ -1,9 +1,11 @@
 const fs = require('fs');
 
+const DEFAULT_PLACEHOLDER = '{Paste your instructions here}';
+
 function ensurePromptFile(config) {
   const file = config.paths.promptFile;
   if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, config.prompt.placeholder || '{Ekane tor intrison paste kot}', 'utf8');
+    fs.writeFileSync(file, config.prompt.placeholder || DEFAULT_PLACEHOLDER, 'utf8');
   }
 }
 
@@ -14,7 +16,7 @@ function loadPrompt(config) {
 
 function promptConfigured(config) {
   const prompt = loadPrompt(config);
-  const placeholder = config.prompt.placeholder || '{Ekane tor intrison paste kot}';
+  const placeholder = config.prompt.placeholder || DEFAULT_PLACEHOLDER;
   return Boolean(prompt && prompt !== placeholder);
 }
 
@@ -52,6 +54,7 @@ function applyPromptPolicy(messages, config) {
 }
 
 module.exports = {
+  DEFAULT_PLACEHOLDER,
   ensurePromptFile,
   loadPrompt,
   promptConfigured,
