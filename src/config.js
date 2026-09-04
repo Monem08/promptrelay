@@ -78,8 +78,50 @@ function normalizeBaseURL(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
+function unquoteEnv(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+
+  if (text.startsWith('"') && text.endsWith('"')) {
+    try {
+      return JSON.parse(text);
+    } catch {}
+  }
+
+  if (text.startsWith("'") && text.endsWith("'")) {
+    return text.slice(1, -1);
+  }
+
+  return text;
+}
+
+function loadEnvFile(file) {
+  if (!fs.existsSync(file)) return;
+
+  const lines = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const index = line.indexOf('=');
+    if (index <= 0) continue;
+
+    const key = line.slice(0, index).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+
+    const value = unquoteEnv(line.slice(index + 1));
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
 function loadConfig() {
   const file = resolveConfigFile();
+  const configRoot = path.dirname(file);
+  const envFile = path.join(configRoot, '.env');
+
+  // ~/.promptrelay/.env is intentionally local-only. Real environment variables win.
+  loadEnvFile(envFile);
+
   const fileConfig = fs.existsSync(file) ? readJson(file) : {};
   const config = deepMerge(DEFAULTS, fileConfig);
 
@@ -107,12 +149,12 @@ function loadConfig() {
   config.provider.apiKeyEnv = apiKeyEnv;
   config.provider.apiKey = process.env[apiKeyEnv] || process.env.PROVIDER_API_KEY || '';
 
-  const configRoot = path.dirname(file);
   config.paths = {
     root: configRoot,
     packageRoot: PACKAGE_ROOT,
     userRoot: USER_ROOT,
     configFile: file,
+    envFile,
     promptFile: path.resolve(configRoot, config.prompt.file || 'system_prompt.txt'),
   };
 
@@ -140,6 +182,9 @@ function validateConfig(config) {
   if (!['bearer', 'header', 'none'].includes(authType)) {
     problems.push('provider.auth.type must be bearer, header, or none');
   }
+  if (authType === 'header' && !config.provider.auth?.headerName) {
+    problems.push('provider.auth.headerName is required when auth.type is header');
+  }
 
   return problems;
 }
@@ -163,6 +208,7 @@ function safeConfig(config) {
     },
     reasoning: config.reasoning,
     configFile: config.paths.configFile,
+    envFile: config.paths.envFile,
   };
 }
 
@@ -174,4 +220,5 @@ module.exports = {
   loadConfig,
   validateConfig,
   safeConfig,
+  loadEnvFile,
 };
