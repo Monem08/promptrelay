@@ -13,6 +13,14 @@ test('CLI prints package version', () => {
   assert.match(result.stdout.trim(), /^1\.1\.0$/);
 });
 
+test('CLI help exposes setup and provider wizard commands', () => {
+  const result = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /promptrelay setup/);
+  assert.match(result.stdout, /promptrelay provider/);
+  assert.match(result.stdout, /promptrelay doctor/);
+});
+
 test('CLI init creates user config files without overwriting later edits', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'promptrelay-cli-'));
   const env = { ...process.env, PROMPTRELAY_HOME: home };
