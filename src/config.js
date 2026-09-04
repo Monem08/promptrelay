@@ -1,8 +1,14 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..');
-const DEFAULT_CONFIG_FILE = path.join(ROOT, 'promptrelay.json');
+const ENV_AT_START = { ...process.env };
+const PACKAGE_ROOT = path.resolve(__dirname, '..');
+const USER_ROOT = path.resolve(
+  process.env.PROMPTRELAY_HOME || path.join(os.homedir(), '.promptrelay'),
+);
+const PACKAGE_CONFIG_FILE = path.join(PACKAGE_ROOT, 'promptrelay.json');
+const USER_CONFIG_FILE = path.join(USER_ROOT, 'promptrelay.json');
 
 const DEFAULTS = {
   server: {
@@ -12,7 +18,7 @@ const DEFAULTS = {
   prompt: {
     mode: 'replace',
     file: 'system_prompt.txt',
-    placeholder: '{Ekane tor intrison paste kot}',
+    placeholder: '{Paste your instructions here}',
   },
   provider: {
     name: 'OpenRouter',
@@ -59,15 +65,66 @@ function readJson(file) {
 }
 
 function resolveConfigFile() {
-  return path.resolve(process.env.PROMPTRELAY_CONFIG || DEFAULT_CONFIG_FILE);
+  if (process.env.PROMPTRELAY_CONFIG) {
+    return path.resolve(process.env.PROMPTRELAY_CONFIG);
+  }
+
+  const cwdConfig = path.resolve(process.cwd(), 'promptrelay.json');
+  if (fs.existsSync(cwdConfig)) return cwdConfig;
+  if (fs.existsSync(USER_CONFIG_FILE)) return USER_CONFIG_FILE;
+  return PACKAGE_CONFIG_FILE;
 }
 
 function normalizeBaseURL(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
+function unquoteEnv(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+
+  if (text.startsWith('"') && text.endsWith('"')) {
+    try {
+      return JSON.parse(text);
+    } catch {}
+  }
+
+  if (text.startsWith("'") && text.endsWith("'")) {
+    return text.slice(1, -1);
+  }
+
+  return text;
+}
+
+function loadEnvFile(file) {
+  if (!fs.existsSync(file)) return;
+
+  const lines = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const index = line.indexOf('=');
+    if (index <= 0) continue;
+
+    const key = line.slice(0, index).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+
+    const value = unquoteEnv(line.slice(index + 1));
+
+    // Values that existed before PromptRelay loaded always win.
+    // Values sourced from ~/.promptrelay/.env can therefore hot-reload safely.
+    if (ENV_AT_START[key] === undefined) process.env[key] = value;
+  }
+}
+
 function loadConfig() {
   const file = resolveConfigFile();
+  const configRoot = path.dirname(file);
+  const envFile = path.join(configRoot, '.env');
+
+  loadEnvFile(envFile);
+
   const fileConfig = fs.existsSync(file) ? readJson(file) : {};
   const config = deepMerge(DEFAULTS, fileConfig);
 
@@ -96,9 +153,12 @@ function loadConfig() {
   config.provider.apiKey = process.env[apiKeyEnv] || process.env.PROVIDER_API_KEY || '';
 
   config.paths = {
-    root: ROOT,
+    root: configRoot,
+    packageRoot: PACKAGE_ROOT,
+    userRoot: USER_ROOT,
     configFile: file,
-    promptFile: path.resolve(ROOT, config.prompt.file || 'system_prompt.txt'),
+    envFile,
+    promptFile: path.resolve(configRoot, config.prompt.file || 'system_prompt.txt'),
   };
 
   return config;
@@ -125,6 +185,9 @@ function validateConfig(config) {
   if (!['bearer', 'header', 'none'].includes(authType)) {
     problems.push('provider.auth.type must be bearer, header, or none');
   }
+  if (authType === 'header' && !config.provider.auth?.headerName) {
+    problems.push('provider.auth.headerName is required when auth.type is header');
+  }
 
   return problems;
 }
@@ -148,13 +211,17 @@ function safeConfig(config) {
     },
     reasoning: config.reasoning,
     configFile: config.paths.configFile,
+    envFile: config.paths.envFile,
   };
 }
 
 module.exports = {
-  ROOT,
+  PACKAGE_ROOT,
+  USER_ROOT,
+  USER_CONFIG_FILE,
   DEFAULTS,
   loadConfig,
   validateConfig,
   safeConfig,
+  loadEnvFile,
 };

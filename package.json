@@ -1,14 +1,40 @@
 {
-  "name": "promptrelay",
-  "version": "1.0.0",
-  "description": "A provider-agnostic prompt gateway for OpenCode with custom system instructions, reasoning, streaming, and tool support.",
+  "name": "@monem08/promptrelay",
+  "version": "1.1.0",
+  "description": "A provider-agnostic system-prompt gateway for OpenCode with custom providers, reasoning, streaming, and tool support.",
   "main": "src/server.js",
   "type": "commonjs",
+  "bin": {
+    "promptrelay": "bin/promptrelay.js"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "check": "node --check src/server.js && node --check src/config.js && node --check src/prompt.js && node --check src/reasoning.js && node --check src/http.js && node --check src/adapters/openai-compatible.js && node --check src/adapters/ollama-native.js",
-    "test": "node --test"
+    "check": "node --check bin/promptrelay.js && node --check src/server.js && node --check src/config.js && node --check src/prompt.js && node --check src/reasoning.js && node --check src/http.js && node --check src/adapters/openai-compatible.js && node --check src/adapters/ollama-native.js",
+    "test": "node --test",
+    "prepublishOnly": "npm run check && npm test"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "examples/",
+    "scripts/",
+    "promptrelay.json",
+    "system_prompt.txt",
+    "opencode.jsonc.example",
+    "LICENSE",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Monem08/promptrelay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Monem08/promptrelay/issues"
+  },
+  "homepage": "https://github.com/Monem08/promptrelay#readme",
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "opencode",
@@ -19,7 +45,8 @@
     "openai-compatible",
     "coding-agent",
     "llm",
-    "prompt-gateway"
+    "prompt-gateway",
+    "cli"
   ],
   "author": "Monem08",
   "license": "MIT",
