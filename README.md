@@ -2,14 +2,14 @@
 
 # ⚡ PromptRelay
 
-### Take control of your coding agent's system prompt.
+### Your agent. Your provider. Your system prompt.
 
 **OpenCode → PromptRelay → OpenRouter / Ollama / any OpenAI-compatible API**
 
 [![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Default Provider: OpenRouter](https://img.shields.io/badge/default-OpenRouter-7B61FF)](https://openrouter.ai/)
-[![Prompt Modes](https://img.shields.io/badge/prompt_modes-4-orange)](#-prompt-modes)
+[![CLI](https://img.shields.io/badge/CLI-promptrelay-black)](#-cli)
 
 **Replace. Prepend. Append. Route. Reason. Stream.**
 
@@ -17,122 +17,80 @@
 
 ---
 
-PromptRelay is a lightweight local gateway for coding agents such as **OpenCode**. It sits between the agent and the model provider, lets you control the system-prompt layer, and forwards requests to the provider/model you choose.
-
-By default, PromptRelay uses **OpenRouter** with `openrouter/auto`. You can switch to another OpenAI-compatible provider—or use the optimized **Ollama native adapter**—without editing the core server code.
+PromptRelay is a lightweight local gateway for coding agents such as **OpenCode**. It lets you control the system-prompt layer, route requests to your preferred model provider, and keep streaming, reasoning, and tool calling working through one OpenAI-compatible local endpoint.
 
 > [!IMPORTANT]
-> `replace` mode intentionally removes incoming `system` and `developer` messages before injecting your custom prompt. Coding agents often keep important tool instructions there, so use `prepend` or `append` if you want to preserve the original agent harness.
-
-> [!NOTE]
-> PromptRelay only controls messages routed through this local proxy. It does not override provider-side policies, model-level restrictions, account rules, or platform-enforced behavior.
+> `replace` mode removes incoming `system` and `developer` messages and injects your custom prompt. If you want to preserve the original coding-agent harness, use `prepend` or `append` instead.
 
 ---
 
-## ✨ Features
+# ⚡ Install
 
-- 🔁 **4 prompt modes** — `replace`, `prepend`, `append`, `passthrough`
-- 📝 **Hot-reloaded prompt file** — edit `system_prompt.txt`; no restart required
-- ☁️ **OpenRouter by default** — one API key and you are ready
-- 🔌 **Provider-agnostic** — works with OpenAI-compatible endpoints
-- ⚡ **Ollama native transport** — optimized `/api/chat` bridge for Ollama Cloud/local
-- 🧠 **Reasoning control** — `none`, `low`, `medium`, `high`, `max` where supported
-- 🛠️ **Tool calling** — passthrough for OpenAI-compatible providers; translated for Ollama native
-- 📡 **Streaming** — OpenAI SSE passthrough or Ollama NDJSON → OpenAI SSE conversion
-- 🖼️ **Image input bridge** — data-URL images are mapped for Ollama native
-- 🔥 **Provider/model hot reload** — edit `promptrelay.json`; the next request uses it
-- 🔐 **Secrets stay in environment variables** — no API keys in config files
-- 🪟 **Windows auto-start script** included
-- 🐧 **Linux setup + systemd example** included
-- ✅ **Tests + GitHub Actions CI** included
-
----
-
-## 🧠 Architecture
-
-```text
-┌─────────────┐
-│  OpenCode   │
-└──────┬──────┘
-       │ OpenAI-compatible request
-       ▼
-┌───────────────────────────────┐
-│         PromptRelay           │
-│                               │
-│  Prompt policy                │
-│  ├─ replace                   │
-│  ├─ prepend                   │
-│  ├─ append                    │
-│  └─ passthrough               │
-│                               │
-│  + custom system prompt       │
-│  + model routing              │
-│  + reasoning normalization    │
-│  + tool/stream handling       │
-└──────────────┬────────────────┘
-               │
-        ┌──────┴──────────┐
-        ▼                 ▼
-┌───────────────┐   ┌────────────────┐
-│ OpenAI-style  │   │ Ollama native  │
-│ provider      │   │ /api/chat      │
-└──────┬────────┘   └──────┬─────────┘
-       │                   │
-       ▼                   ▼
- OpenRouter /         Ollama Cloud /
- custom provider      Ollama Local
-```
-
-PromptRelay exposes:
-
-```text
-GET  /health
-GET  /v1/models
-POST /v1/chat/completions
-```
-
----
-
-# 🚀 Quick start
-
-## 1. Clone
+## GitHub — works now
 
 ```bash
-git clone https://github.com/Monem08/promptrelay.git
-cd promptrelay
+npm i -g github:Monem08/promptrelay
 ```
 
-## 2. Install
+Then:
 
 ```bash
-npm install
-npm run check
-npm test
+promptrelay init
+promptrelay
 ```
 
-Requires **Node.js 18+**.
+No clone. No manual `npm install`. No editing JavaScript.
 
-## 3. Add your system instruction
+## npm package
 
-Open:
+PromptRelay is prepared to publish as:
+
+```bash
+npm i -g @monem08/promptrelay
+```
+
+After it is published to npm, the same `promptrelay` CLI will work.
+
+---
+
+# 🚀 60-second setup
+
+### 1. Initialize
+
+```bash
+promptrelay init
+```
+
+PromptRelay creates:
 
 ```text
-system_prompt.txt
+~/.promptrelay/
+├── promptrelay.json
+├── system_prompt.txt
+└── opencode.jsonc.example
 ```
 
-Replace:
+On Windows this is typically:
+
+```text
+C:\Users\YOUR_NAME\.promptrelay\
+```
+
+### 2. Add your system instruction
+
+Open `system_prompt.txt` and replace:
 
 ```text
 {Paste your instructions here}
 ```
 
-with your own instruction.
+with your own prompt.
 
-Because the prompt lives in a plain text file, you can safely use Markdown, quotes, apostrophes, backticks, code blocks, and long multi-section instructions. No JavaScript escaping is required.
+The prompt file is plain text, so Markdown, quotes, backticks, code blocks, and long multi-section instructions are safe.
 
-## 4. Set your provider API key
+### 3. Set your provider API key
 
-### Windows PowerShell
+Windows PowerShell:
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable(
@@ -142,31 +100,37 @@ Because the prompt lives in a plain text file, you can safely use Markdown, quot
 )
 ```
 
-Open a new PowerShell window after setting it.
+Open a new PowerShell window afterward.
 
-### Linux / macOS
+Linux / macOS:
 
 ```bash
 export PROVIDER_API_KEY="YOUR_API_KEY_HERE"
 ```
 
-## 5. Start PromptRelay
+### 4. Check setup
 
 ```bash
-npm start
+promptrelay doctor
 ```
 
-Health check:
+### 5. Start
 
 ```bash
-curl http://127.0.0.1:4141/health
+promptrelay
+```
+
+Default endpoint:
+
+```text
+http://127.0.0.1:4141/v1
 ```
 
 ---
 
-# 🔌 OpenCode setup
+# 🔌 OpenCode
 
-Copy `opencode.jsonc.example` into your OpenCode config, or add this provider manually:
+Use PromptRelay as an OpenAI-compatible provider:
 
 ```jsonc
 {
@@ -194,50 +158,116 @@ Copy `opencode.jsonc.example` into your OpenCode config, or add this provider ma
 }
 ```
 
-The local `apiKey` above is only a dummy value. Your real upstream key stays in `PROVIDER_API_KEY` or whichever environment variable you configure.
+The local `apiKey` above is only a dummy value. Your real provider key stays in the environment variable configured by PromptRelay.
 
-> [!TIP]
-> Set `context` and `output` to the real limits of the upstream model you use.
+---
+
+# ✨ Features
+
+- 🔁 `replace`, `prepend`, `append`, `passthrough` prompt modes
+- 📝 hot-reloaded `system_prompt.txt`
+- 🔥 provider/model config hot reload
+- ☁️ OpenRouter default provider
+- 🔌 generic OpenAI-compatible providers
+- ⚡ dedicated Ollama native `/api/chat` transport
+- 🧠 reasoning control: `none`, `low`, `medium`, `high`, `max` where supported
+- 🛠️ tool calling and tool-result translation
+- 📡 streaming support
+- 🖼️ Ollama image data-URL bridge
+- 🔐 API keys kept out of config files
+- 🩺 built-in `promptrelay doctor`
+- 🪟 Windows + 🐧 Linux support
+- ✅ tests + GitHub Actions CI
+
+---
+
+# 🧠 Architecture
+
+```text
+┌─────────────┐
+│  OpenCode   │
+└──────┬──────┘
+       │ OpenAI-compatible request
+       ▼
+┌───────────────────────────────┐
+│         PromptRelay           │
+│                               │
+│  prompt policy                │
+│  ├─ replace                   │
+│  ├─ prepend                   │
+│  ├─ append                    │
+│  └─ passthrough               │
+│                               │
+│  + provider routing           │
+│  + reasoning normalization    │
+│  + tool/stream translation    │
+└──────────────┬────────────────┘
+               │
+        ┌──────┴──────────┐
+        ▼                 ▼
+┌───────────────┐   ┌────────────────┐
+│ OpenAI-style  │   │ Ollama native  │
+│ provider      │   │ /api/chat      │
+└──────┬────────┘   └──────┬─────────┘
+       │                   │
+       ▼                   ▼
+ OpenRouter /         Ollama Cloud /
+ custom provider      Ollama Local
+```
+
+PromptRelay exposes:
+
+```text
+GET  /health
+GET  /v1/models
+POST /v1/chat/completions
+```
+
+---
+
+# 🖥️ CLI
+
+```text
+promptrelay            Start PromptRelay
+promptrelay init       Create user config files
+promptrelay doctor     Validate prompt/provider/API-key setup
+promptrelay path       Print PromptRelay home directory
+promptrelay --version  Print version
+promptrelay --help     Show help
+```
+
+If no user config exists, running `promptrelay` automatically initializes the PromptRelay home directory and tells you what to configure next.
 
 ---
 
 # 🎛️ Prompt modes
 
-Configure the mode in `promptrelay.json`:
-
-```json
-"prompt": {
-  "mode": "replace",
-  "file": "system_prompt.txt",
-  "placeholder": "{Paste your instructions here}"
-}
-```
+Configure `prompt.mode` in `promptrelay.json`:
 
 | Mode | Behavior |
 |---|---|
-| `replace` | Removes incoming `system` + `developer`, then injects your custom system prompt |
-| `prepend` | Adds your custom system prompt before the original messages |
-| `append` | Keeps original privileged messages, then adds your custom system prompt before the conversation |
-| `passthrough` | Leaves messages untouched and acts only as a provider gateway |
+| `replace` | Remove incoming `system` + `developer`, then inject your prompt |
+| `prepend` | Put your custom system prompt before the original messages |
+| `append` | Keep original privileged messages, then add your custom prompt |
+| `passthrough` | Do not modify messages; use PromptRelay only as a provider gateway |
 
-### Replace example
+Example:
 
-```text
-IN:
-SYSTEM: OpenCode instructions
-DEVELOPER: Agent rules
-USER: Build this
-
-OUT:
-SYSTEM: Your system_prompt.txt
-USER: Build this
+```json
+{
+  "prompt": {
+    "mode": "replace",
+    "file": "system_prompt.txt",
+    "placeholder": "{Paste your instructions here}"
+  }
+}
 ```
 
 ---
 
-# ☁️ Default provider: OpenRouter
+# ☁️ Providers
 
-The default `promptrelay.json` uses:
+Default provider:
 
 ```json
 {
@@ -255,23 +285,7 @@ The default `promptrelay.json` uses:
 }
 ```
 
-With `forceModel: true`, PromptRelay always uses the model configured in `promptrelay.json`.
-
-Set:
-
-```json
-"forceModel": false
-```
-
-if you want the model ID sent by OpenCode to pass through dynamically.
-
----
-
-# 🔄 Custom providers
-
-Provider/model settings are loaded from `promptrelay.json` on every request. You can switch providers without changing `src/server.js`.
-
-Examples are included in:
+Provider examples are included in:
 
 ```text
 examples/providers/
@@ -281,49 +295,13 @@ examples/providers/
 └── custom-openai-compatible.json
 ```
 
-Generic OpenAI-compatible example:
-
-```json
-{
-  "provider": {
-    "name": "My Provider",
-    "transport": "openai-compatible",
-    "baseURL": "https://api.example.com/v1",
-    "model": "my-model-id",
-    "forceModel": true,
-    "apiKeyEnv": "PROVIDER_API_KEY",
-    "auth": {
-      "type": "bearer"
-    },
-    "headers": {}
-  }
-}
-```
-
-PromptRelay expects standard endpoints by default:
-
-```text
-BASE_URL/models
-BASE_URL/chat/completions
-```
+Because provider config is hot-reloaded, changing provider/model does not require restarting PromptRelay.
 
 ---
 
 # ⚡ Ollama native mode
 
-PromptRelay includes a dedicated `ollama-native` transport. Instead of forwarding chat to `/v1/chat/completions`, it translates OpenAI-style requests to Ollama's native `/api/chat` format and converts responses back for OpenCode.
-
-It supports:
-
-- native `think` reasoning levels
-- streaming reasoning content
-- tool definitions
-- assistant tool calls
-- tool-result history
-- image data URLs
-- response usage conversion
-
-Example Ollama Cloud config:
+For Ollama Cloud or local Ollama, PromptRelay can use native `/api/chat` instead of the OpenAI-compatible chat endpoint.
 
 ```json
 {
@@ -347,16 +325,7 @@ Example Ollama Cloud config:
 }
 ```
 
-For local Ollama:
-
-```json
-"baseURL": "http://127.0.0.1:11434",
-"auth": {
-  "type": "none"
-}
-```
-
-Use the exact model ID available on your Ollama instance/account.
+The native adapter translates OpenAI-style requests into Ollama-native messages, tools, reasoning, and streaming responses, then converts them back for OpenCode.
 
 ---
 
@@ -372,216 +341,89 @@ high
 max
 ```
 
-For OpenAI-compatible providers, explicit reasoning fields are normalized to `reasoning_effort` when configured. For `ollama-native`, reasoning is converted to Ollama's native `think` setting.
+Actual support depends on the upstream provider/model.
 
-Reasoning support depends on the upstream provider/model.
+For OpenAI-compatible providers, reasoning can be normalized to `reasoning_effort`. For Ollama native, it maps to Ollama's `think` setting.
 
 ---
 
 # 🛠️ Tool calling
 
-For OpenAI-compatible providers, tool definitions and tool-call payloads are forwarded upstream.
+OpenAI-compatible transport forwards tools directly.
 
-For Ollama native, PromptRelay translates:
-
-```text
-OpenAI tools → Ollama tools
-Ollama tool calls → OpenAI tool_calls
-OpenAI tool results → Ollama role:tool history
-```
-
-If you use `replace` mode, include strong tool-use rules in `system_prompt.txt` because the original OpenCode system/developer instructions are intentionally removed.
-
-A starter prompt is available at:
+Ollama native transport translates:
 
 ```text
-examples/system-prompt.txt
+OpenAI tools         → Ollama tools
+Ollama tool calls    → OpenAI tool_calls
+OpenAI tool results  → Ollama role:tool history
 ```
+
+If you use `replace` mode, put strong tool-use rules inside your custom system prompt because the original agent system/developer messages are intentionally removed.
 
 ---
 
 # 🔥 Hot reload
 
-| Setting | Restart required? |
+| Setting | Restart? |
 |---|---:|
-| `system_prompt.txt` | No |
+| system prompt | No |
 | provider | No |
 | model | No |
 | prompt mode | No |
-| reasoning defaults | No |
+| reasoning config | No |
 | auth/header config | No |
-| server host/port | **Yes** |
+| host/port | **Yes** |
 
 ---
 
-# 🪟 Windows
+# 🧪 Development
 
-Setup:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
-```
-
-Start manually:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
-```
-
-Install auto-start from **Administrator PowerShell**:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install-autostart-windows.ps1
-```
-
-Check:
-
-```powershell
-Get-ScheduledTask -TaskName "PromptRelay"
-curl.exe http://127.0.0.1:4141/health
-```
-
----
-
-# 🐧 Linux
+Clone manually only if you want to develop PromptRelay itself:
 
 ```bash
-chmod +x scripts/setup-linux.sh
-./scripts/setup-linux.sh
-```
-
-A systemd example is included at:
-
-```text
-scripts/promptrelay.service.example
-```
-
----
-
-# 🧪 Testing
-
-```bash
+git clone https://github.com/Monem08/promptrelay.git
+cd promptrelay
+npm install
 npm run check
 npm test
-```
-
-GitHub Actions CI runs across Node.js 18, 20, and 22.
-
----
-
-# 🔍 Troubleshooting
-
-### `promptConfigured: false`
-
-Open `system_prompt.txt` and replace:
-
-```text
-{Paste your instructions here}
-```
-
-with your prompt.
-
-### Port `4141` is unreachable
-
-Run PromptRelay in the foreground:
-
-```bash
 npm start
 ```
 
-Then inspect the actual error.
-
-### Provider returns `401` / `403`
-
-Check your API key, `apiKeyEnv`, auth type, provider base URL, and account permissions.
-
-### Tools became worse after `replace`
-
-Try `prepend`/`append`, or add explicit tool rules to your custom prompt.
-
-### OpenAI-compatible Ollama path is slow
-
-Use:
-
-```json
-"transport": "ollama-native"
-```
-
-so PromptRelay uses native `/api/chat`.
+Requires Node.js 18+.
 
 ---
 
 # 🔐 Security
 
 - Never commit API keys.
-- Never paste real keys into screenshots, README files, issues, or logs.
-- Keep PromptRelay bound to `127.0.0.1` unless you intentionally add authentication/TLS for remote access.
+- Keep PromptRelay bound to `127.0.0.1` unless you intentionally secure remote access.
 - PromptRelay forwards conversation content, code context, tool definitions, and tool results to the configured upstream provider.
-- Review the privacy/data-retention policy of the provider you use.
-- `replace` mode can remove client-supplied tooling/safety instructions. Use it deliberately.
+- Review the privacy/data-retention policy of your provider.
+- `replace` mode deliberately removes client-supplied privileged instructions; use it intentionally.
 
 See [SECURITY.md](SECURITY.md).
 
 ---
 
-# 📁 Project structure
-
-```text
-promptrelay/
-├── src/
-│   ├── server.js
-│   ├── config.js
-│   ├── prompt.js
-│   ├── reasoning.js
-│   ├── http.js
-│   └── adapters/
-│       ├── openai-compatible.js
-│       └── ollama-native.js
-├── examples/
-│   ├── system-prompt.txt
-│   └── providers/
-├── scripts/
-├── test/
-├── .github/workflows/ci.yml
-├── promptrelay.json
-├── system_prompt.txt
-├── opencode.jsonc.example
-├── .env.example
-├── package.json
-├── LICENSE
-└── README.md
-```
-
----
-
 # 🗺️ Roadmap
 
+- [x] provider-agnostic gateway
 - [x] OpenRouter default
-- [x] Generic OpenAI-compatible transport
-- [x] Ollama native transport
-- [x] Replace / prepend / append / passthrough
-- [x] Prompt + provider/model hot reload
-- [x] Streaming
-- [x] Tool calling
-- [x] Reasoning normalization
-- [x] Windows auto-start
-- [x] Linux service example
-- [x] Tests + CI
-- [ ] Request debug inspector with redacted secrets
-- [ ] Per-model reasoning profiles
-- [ ] Config schema + editor validation
-- [ ] Optional local authentication token
+- [x] Ollama native adapter
+- [x] prompt modes
+- [x] reasoning + streaming + tools
+- [x] hot reload
+- [x] installable CLI
+- [x] `init` + `doctor`
+- [ ] npm registry release
+- [ ] interactive provider setup wizard
+- [ ] local authentication token
 - [ ] Docker image
-- [ ] Web dashboard
-- [ ] Multiple named provider profiles
-- [ ] Prompt presets + version history
-- [ ] Latency/token metrics
-
----
-
-# 🤝 Contributing
-
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- [ ] web dashboard
+- [ ] named provider profiles
+- [ ] prompt presets/version history
+- [ ] latency/token metrics
 
 ---
 
@@ -589,12 +431,10 @@ Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 MIT — see [LICENSE](LICENSE).
 
----
-
 <div align="center">
 
-**PromptRelay**
+## ⚡ PromptRelay
 
-*Your agent. Your provider. Your prompt.* ⚡
+**Your agent. Your provider. Your prompt.**
 
 </div>
