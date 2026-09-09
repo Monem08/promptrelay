@@ -5,6 +5,8 @@ const { loadConfig, validateConfig, safeConfig, collectSecrets } = require('../c
 const { ensurePromptFile, loadPrompt, promptConfigured } = require('../prompts');
 const { dispatchChat, dispatchModels } = require('../adapters');
 const { handleMessages } = require('./messages');
+const { registerDashboard } = require('./dashboard');
+const requestLog = require('../telemetry/requests');
 const logger = require('../telemetry/logger');
 
 const VERSION = require('../../package.json').version;
@@ -137,8 +139,34 @@ function createApp() {
   app.post('/v1/messages', async (req, res) => {
     const config = configOrError(res);
     if (!config) return;
+    // Record Anthropic-ingress request metadata (off the hot path, no content).
+    const startedAt = Date.now();
+    let recorded = false;
+    const finalize = () => {
+      if (recorded) return;
+      recorded = true;
+      try {
+        requestLog.record({
+          client: /claude/i.test(req.headers['user-agent'] || '') ? 'claude-code' : 'unknown',
+          ingress: 'anthropic',
+          provider: config.provider.name,
+          model: config.provider.model,
+          status: res.statusCode,
+          stream: Boolean(req.body?.stream),
+          totalMs: Date.now() - startedAt,
+          reasoning: config.reasoning?.auto ? 'auto' : config.reasoning?.default,
+          error: res.statusCode >= 400 ? `HTTP ${res.statusCode}` : null,
+        });
+      } catch {}
+    };
+    res.on('finish', finalize);
+    res.on('close', finalize);
     return handleMessages(req, res, config);
   });
+
+  // Dashboard: read-only APIs + static SPA. Mounted BEFORE the 404 handler and
+  // isolated from the proxy hot path above.
+  registerDashboard(app);
 
   app.use((req, res) => {
     res.status(404).json({

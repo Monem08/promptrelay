@@ -17,6 +17,7 @@
   "files": [
     "bin/",
     "src/",
+    "dashboard/",
     "examples/",
     "scripts/",
     "promptrelay.json",

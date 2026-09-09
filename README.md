@@ -49,6 +49,7 @@ Prefer to do it by hand? See [Manual configuration](#manual-configuration).
 - [Reliability: retry & fallback](#reliability-retry--fallback)
 - [OpenCode integration](#opencode-integration)
 - [Security & secret handling](#security--secret-handling)
+- [Web dashboard](#web-dashboard)
 - [HTTP API](#http-api)
 - [CLI reference](#cli-reference)
 - [Configuration reference](#configuration-reference)
@@ -287,6 +288,40 @@ promptrelay keys remove OPENROUTER_API_KEY          # remove a secret
 
 ---
 
+## Web dashboard
+
+PromptRelay ships with a built-in web dashboard — a lightweight control panel for
+everything the CLI does, served straight from the gateway (no extra install, no
+build step, no framework).
+
+```bash
+promptrelay dashboard          # start the gateway if needed and open the dashboard
+promptrelay dashboard --print  # print the classic terminal status view instead
+```
+
+The dashboard is available at **`http://127.0.0.1:4141/dashboard`** while the gateway
+is running. It gives you:
+
+- **Overview** — live health, key counts, connected clients, and traffic at a glance.
+- **Clients** — every coding client wired to PromptRelay (OpenCode, Claude Code, Hermes) with wiring status.
+- **Providers** — provider status and a guided add-provider wizard.
+- **Models** — a searchable/filterable explorer with a per-model capability drawer.
+- **Router** — pick a routing profile, apply constraints, and preview candidate ranking (global or per-client).
+- **Prompt Studio** — edit the system prompt with mode/preset/scope controls and a live effective preview.
+- **Requests** — a recent-request inspector (metadata only) with a full per-request detail drawer.
+- **Diagnostics** — a system-health console plus one-click **Autopilot** safe checks.
+- **Metrics** — traffic, latency, and usage charts computed from real recorded requests only.
+- **Settings** — safe, redacted configuration (secrets are never sent to the browser).
+
+**Security.** The dashboard and its `/api/dashboard/*` endpoints are **local-only by
+default** — requests from non-loopback addresses are rejected unless you explicitly set
+`PROMPTRELAY_DASHBOARD_ALLOW_REMOTE=true`. Secrets and API keys are never exposed to the
+browser: keys are masked, errors are sanitized, and full prompt/response logging is
+intentionally unavailable. Data is real — when a value is not known it is shown as
+*Unknown* / *No data yet* rather than being faked.
+
+---
+
 ## HTTP API
 
 PromptRelay exposes an OpenAI-compatible surface on `http://127.0.0.1:4141` (configurable):
@@ -354,7 +389,8 @@ Keys
 
 Other
   promptrelay init                     Create config files without overwriting
-  promptrelay dashboard                Print a status dashboard
+  promptrelay dashboard                Open the web dashboard (starts gateway if needed)
+  promptrelay dashboard --print        Print the terminal status dashboard instead
   promptrelay path                     Print ~/.promptrelay path
   promptrelay --version                Print version
   promptrelay --help                   Show this help

@@ -91,7 +91,8 @@ Keys:
 
 Other:
   promptrelay init                 Create config files without overwriting
-  promptrelay dashboard            Print a status dashboard
+  promptrelay dashboard            Open the web dashboard (starts gateway if needed)
+  promptrelay dashboard --print    Print the terminal status dashboard instead
   promptrelay path                 Print ~/.promptrelay path
   promptrelay --version            Print version
   promptrelay --help               Show this help
@@ -819,7 +820,8 @@ async function status() {
   console.log('');
 }
 
-async function dashboard() {
+// Print the classic terminal status dashboard (kept for `promptrelay dashboard --print`).
+async function dashboardPrint() {
   const config = loadUserConfig();
   const { validateConfig } = require('../config');
   const { promptConfigured } = require('../prompts');
@@ -839,6 +841,71 @@ async function dashboard() {
   console.log('══════════════════════════════════════════════');
   console.log('');
   await status();
+}
+
+// Open the web dashboard in the default browser, starting the gateway if needed.
+async function dashboard(opts = {}) {
+  if (opts.print) {
+    await dashboardPrint();
+    return;
+  }
+
+  const config = loadUserConfig();
+  const host = config.server?.host || '127.0.0.1';
+  const port = config.server?.port || 4141;
+  // Loopback address the browser should target (never advertise 0.0.0.0).
+  const browserHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
+  const url = `http://${browserHost}:${port}/dashboard`;
+
+  let running = await isPortInUse(host, port);
+
+  if (!running) {
+    console.log('Starting PromptRelay gateway…');
+    await startServer({ daemon: true });
+    // Wait for the port to accept connections (up to ~8s).
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      if (await isPortInUse(host, port)) { running = true; break; }
+    }
+    if (!running) {
+      console.log('⚠️ Gateway did not come up in time. Check `promptrelay status`.');
+      console.log(`   Once it is running, open: ${url}`);
+      return;
+    }
+  } else {
+    console.log('PromptRelay gateway already running.');
+  }
+
+  console.log(`Opening dashboard → ${url}`);
+  const opened = openInBrowser(url);
+  if (!opened) {
+    console.log('Could not launch a browser automatically.');
+    console.log(`Open this URL manually: ${url}`);
+  }
+}
+
+// Best-effort cross-platform browser launcher. Returns true if a launcher was spawned.
+function openInBrowser(url) {
+  let command;
+  let args;
+  if (process.platform === 'darwin') {
+    command = 'open';
+    args = [url];
+  } else if (process.platform === 'win32') {
+    command = 'cmd';
+    args = ['/c', 'start', '""', url];
+  } else {
+    command = 'xdg-open';
+    args = [url];
+  }
+  try {
+    const child = spawn(command, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => {});
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 module.exports = {
@@ -880,4 +947,5 @@ module.exports = {
   restartServer,
   status,
   dashboard,
+  dashboardPrint,
 };

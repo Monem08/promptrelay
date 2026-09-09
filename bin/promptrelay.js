@@ -235,7 +235,7 @@ async function main() {
       await commands.status();
       break;
     case 'dashboard':
-      await commands.dashboard();
+      await commands.dashboard({ print: rest.includes('--print') || rest.includes('--terminal') });
       break;
     case 'setup':
       await wizard.setup();
