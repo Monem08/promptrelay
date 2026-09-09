@@ -2,10 +2,12 @@
 
 const openai = require('./openai-compatible');
 const ollama = require('./ollama-native');
+const anthropic = require('./anthropic-native');
 const logger = require('../telemetry/logger');
 
 function adapterFor(config) {
   if (config.provider.transport === 'ollama-native') return ollama;
+  if (config.provider.transport === 'anthropic-native') return anthropic;
   return openai;
 }
 
@@ -79,4 +81,5 @@ module.exports = {
   dispatchModels,
   openai,
   ollama,
+  anthropic,
 };

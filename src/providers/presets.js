@@ -70,6 +70,28 @@ const PRESETS = {
     needsKey: false,
   },
 
+  anthropic: {
+    id: 'anthropic',
+    label: 'Anthropic (Claude) — native Messages API',
+    transport: 'anthropic-native',
+    template: () => ({
+      name: 'Anthropic',
+      transport: 'anthropic-native',
+      baseURL: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-20250514',
+      forceModel: true,
+      apiKeyEnv: 'PROVIDER_API_KEY',
+      auth: { type: 'header', headerName: 'x-api-key' },
+      modelsPath: '/v1/models',
+      chatPath: '/v1/messages',
+      headers: {
+        'anthropic-version': '2023-06-01',
+      },
+    }),
+    reasoning: { default: 'low', injectDefault: false, auto: false },
+    needsKey: true,
+  },
+
   'custom-openai': {
     id: 'custom-openai',
     label: 'Custom OpenAI-compatible provider',

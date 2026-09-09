@@ -11,7 +11,7 @@
 const CONFIG_VERSION = 2;
 
 const PROMPT_MODES = ['replace', 'prepend', 'append', 'passthrough'];
-const TRANSPORTS = ['openai-compatible', 'ollama-native'];
+const TRANSPORTS = ['openai-compatible', 'ollama-native', 'anthropic-native'];
 const AUTH_TYPES = ['bearer', 'header', 'none'];
 const REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'max'];
 

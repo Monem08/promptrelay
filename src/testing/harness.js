@@ -39,16 +39,31 @@ async function startGateway(opts = {}) {
   const configFile = path.join(dir, 'promptrelay.json');
   const promptFile = path.join(dir, 'system_prompt.txt');
 
+  const nameByTransport = {
+    'ollama-native': 'Mock Ollama',
+    'anthropic-native': 'Mock Anthropic',
+    'openai-compatible': 'Mock OpenAI',
+  };
+  const modelByTransport = {
+    'ollama-native': 'llama3',
+    'anthropic-native': 'claude-sonnet-4-20250514',
+    'openai-compatible': 'mock-model',
+  };
+  const pathsByTransport = {
+    'ollama-native': { chatPath: '/api/chat', modelsPath: '/v1/models' },
+    'anthropic-native': { chatPath: '/v1/messages', modelsPath: '/v1/models' },
+  };
+
   const providerBlock = {
-    name: transport === 'ollama-native' ? 'Mock Ollama' : 'Mock OpenAI',
+    name: nameByTransport[transport] || 'Mock OpenAI',
     transport,
     baseURL,
-    model: transport === 'ollama-native' ? 'llama3' : 'mock-model',
+    model: modelByTransport[transport] || 'mock-model',
     forceModel: true,
     apiKeyEnv: 'PROVIDER_API_KEY',
-    auth: { type: 'bearer' },
+    auth: transport === 'anthropic-native' ? { type: 'header', headerName: 'x-api-key' } : { type: 'bearer' },
     headers: {},
-    ...(transport === 'ollama-native' ? { chatPath: '/api/chat', modelsPath: '/v1/models' } : {}),
+    ...(pathsByTransport[transport] || {}),
     ...provider,
   };
 

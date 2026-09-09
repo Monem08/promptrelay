@@ -76,6 +76,14 @@ OpenCode:
   promptrelay opencode status      Show OpenCode integration status
   promptrelay opencode repair      Re-merge the PromptRelay provider
 
+Clients (multi-client integration):
+  promptrelay client list          List supported clients (OpenCode, Claude Code, Hermes)
+  promptrelay client detect        Detect which clients are configured on this machine
+  promptrelay client status [id]   Show PromptRelay wiring status for a client (or all)
+  promptrelay client setup <id>    Wire a client to PromptRelay (--model, --small-model)
+  promptrelay client repair <id>   Re-apply the PromptRelay wiring for a client
+  promptrelay client remove <id>   Remove PromptRelay wiring (restores backup-safe)
+
 Keys:
   promptrelay keys set <ENV> <val> Store a secret in ~/.promptrelay/.env
   promptrelay keys list            List stored key names (masked)
@@ -433,6 +441,126 @@ function opencodeStatus() {
   console.log('');
 }
 
+// --- clients ----------------------------------------------------------------
+
+/** PromptRelay base URL for a client, respecting each client's protocol. */
+function clientBaseURL(client, config) {
+  return client.defaultBaseURL(config.server);
+}
+
+function clientList() {
+  const { listClients } = require('../clients/registry');
+  console.log('');
+  console.log('Supported clients:');
+  for (const c of listClients()) {
+    const ingress = c.protocol === 'anthropic' ? 'POST /v1/messages' : 'POST /v1/chat/completions';
+    console.log(`  - ${c.id.padEnd(12)} ${c.label.padEnd(14)} [${c.protocol}] → ${ingress}`);
+  }
+  console.log('');
+  console.log('Set one up with:  promptrelay client setup <id>');
+  console.log('');
+}
+
+function clientDetect() {
+  const { detectAll } = require('../clients/registry');
+  console.log('');
+  console.log('Detected clients (by config presence):');
+  for (const d of detectAll()) {
+    console.log(`  - ${d.label.padEnd(14)} ${d.installed ? '✅ config found' : '— not found'}  ${d.path}`);
+  }
+  console.log('');
+}
+
+function clientStatus(id) {
+  const { getClient, statusAll } = require('../clients/registry');
+  const entries = id ? [getClient(id)].filter(Boolean).map((c) => c.status()) : statusAll();
+  if (id && !entries.length) {
+    console.error(`Unknown client "${id}". Run \`promptrelay client list\`.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log('');
+  for (const s of entries) {
+    console.log(`${s.label} [${s.protocol}]`);
+    console.log(`   Config found : ${s.found ? 'yes' : 'no'}`);
+    console.log(`   Path         : ${s.path}`);
+    if (s.found && s.valid === false) {
+      console.log(`   Valid        : ❌ ${s.error}`);
+    } else if (s.found) {
+      console.log(`   PromptRelay  : ${s.configured ? '✅ configured' : '❌ not configured'}`);
+      if (s.details) {
+        for (const [k, v] of Object.entries(s.details)) {
+          if (v !== undefined && v !== null) console.log(`     ${k} = ${v}`);
+        }
+      }
+      if (s.models && s.models.length) console.log(`   Models       : ${s.models.join(', ')}`);
+    }
+    console.log('');
+  }
+}
+
+async function clientSetup(id, { model, smallModel } = {}) {
+  const { getClient } = require('../clients/registry');
+  const client = getClient(id);
+  if (!client) {
+    console.error(`Unknown client "${id}". Run \`promptrelay client list\`.`);
+    process.exitCode = 1;
+    return;
+  }
+  const config = loadUserConfig();
+  const baseURL = clientBaseURL(client, config);
+  const chosenModel = model || config.provider.model;
+
+  // For OpenCode, attach verified model metadata when available (never fabricated).
+  let modelMeta = null;
+  if (client.id === 'opencode') {
+    try {
+      const { discoverModels } = require('../models');
+      const result = await discoverModels(config, {});
+      if (!result.error) modelMeta = result.models.find((m) => m.id === chosenModel) || null;
+    } catch { /* discovery is best-effort */ }
+  }
+
+  let res;
+  try {
+    res = client.configure({ baseURL, model: chosenModel, smallModel, modelMeta });
+  } catch (error) {
+    console.error(`❌ ${error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log('');
+  console.log(res.created ? `✅ ${client.label} config created.` : `✅ PromptRelay wired into ${client.label} (existing config preserved).`);
+  console.log(`   Path     : ${res.path}`);
+  if (res.envPath) console.log(`   Env file : ${res.envPath}`);
+  if (res.backupPath) console.log(`   Backup   : ${res.backupPath}`);
+  console.log(`   Endpoint : ${baseURL}${client.protocol === 'anthropic' ? '  (Anthropic Messages ingress)' : '  (OpenAI-compatible ingress)'}`);
+  console.log(`   Model    : ${chosenModel}`);
+  console.log('   Note     : No upstream provider key was written to the client; PromptRelay holds your credentials.');
+  console.log('');
+}
+
+function clientRemove(id) {
+  const { getClient } = require('../clients/registry');
+  const client = getClient(id);
+  if (!client) {
+    console.error(`Unknown client "${id}". Run \`promptrelay client list\`.`);
+    process.exitCode = 1;
+    return;
+  }
+  const res = client.remove();
+  console.log('');
+  if (res.removed) {
+    console.log(`✅ Removed PromptRelay from ${client.label}.`);
+    console.log(`   Path   : ${res.path}`);
+    if (res.backupPath) console.log(`   Backup : ${res.backupPath}`);
+  } else {
+    console.log(`ℹ️ ${res.note || 'Nothing to remove.'}`);
+  }
+  console.log('');
+}
+
 // --- keys -------------------------------------------------------------------
 
 function keysSet(name, value) {
@@ -736,6 +864,12 @@ module.exports = {
   openFile,
   opencodeSetup,
   opencodeStatus,
+  clientBaseURL,
+  clientList,
+  clientDetect,
+  clientStatus,
+  clientSetup,
+  clientRemove,
   keysSet,
   keysList,
   keysRemove,

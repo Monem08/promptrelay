@@ -135,6 +135,39 @@ async function handleOpencode(sub) {
   }
 }
 
+async function handleClient(sub, rest) {
+  const { flags, positional } = parseFlags(rest);
+  const model = typeof flags.model === 'string' ? flags.model : undefined;
+  const smallModel = typeof flags['small-model'] === 'string' ? flags['small-model'] : undefined;
+  switch ((sub || 'list').toLowerCase()) {
+    case 'list':
+      commands.clientList();
+      break;
+    case 'detect':
+      commands.clientDetect();
+      break;
+    case 'status':
+      commands.clientStatus(positional[0]);
+      break;
+    case 'setup':
+    case 'configure':
+    case 'repair':
+      await commands.clientSetup(positional[0], { model, smallModel });
+      break;
+    case 'remove':
+    case 'rm':
+      commands.clientRemove(positional[0]);
+      break;
+    default:
+      // Allow `client <id>` as a shortcut for `client setup <id>`.
+      if (sub) {
+        await commands.clientSetup(sub, { model, smallModel });
+      } else {
+        commands.clientList();
+      }
+  }
+}
+
 async function handlePrompt(sub, rest) {
   const { positional } = parseFlags(rest);
   switch ((sub || '').toLowerCase()) {
@@ -238,6 +271,10 @@ async function main() {
       break;
     case 'opencode':
       await handleOpencode(sub);
+      break;
+    case 'client':
+    case 'clients':
+      await handleClient(sub, rest);
       break;
     case 'keys':
       await handleKeys(sub, rest);

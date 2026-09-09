@@ -54,6 +54,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "js-yaml": "^5.4.1"
   }
 }

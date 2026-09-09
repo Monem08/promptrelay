@@ -4,6 +4,7 @@ const express = require('express');
 const { loadConfig, validateConfig, safeConfig, collectSecrets } = require('../config');
 const { ensurePromptFile, loadPrompt, promptConfigured } = require('../prompts');
 const { dispatchChat, dispatchModels } = require('../adapters');
+const { handleMessages } = require('./messages');
 const logger = require('../telemetry/logger');
 
 const VERSION = require('../../package.json').version;
@@ -65,6 +66,7 @@ function createApp() {
         health: '/health',
         models: '/v1/models',
         chat: '/v1/chat/completions',
+        messages: '/v1/messages',
       },
     });
   });
@@ -128,6 +130,14 @@ function createApp() {
     }
 
     return dispatchChat(req, res, config);
+  });
+
+  // Anthropic Messages ingress (e.g. Claude Code). Normalizes to IR then
+  // dispatches to whichever provider PromptRelay is configured for.
+  app.post('/v1/messages', async (req, res) => {
+    const config = configOrError(res);
+    if (!config) return;
+    return handleMessages(req, res, config);
   });
 
   app.use((req, res) => {

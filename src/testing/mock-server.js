@@ -199,4 +199,107 @@ function ollamaNative(options = {}) {
   });
 }
 
-module.exports = { startServer, openAICompatible, ollamaNative };
+/**
+ * A configurable Anthropic-native mock: GET /v1/models and POST /v1/messages
+ * (both non-stream JSON and the Anthropic SSE event sequence). Options:
+ *  - models: array returned by GET /v1/models (data[])
+ *  - content: assistant text
+ *  - thinking: when set, emits a thinking block/delta
+ *  - tool: { name, input } to emit a tool_use block
+ *  - failTimes/failStatus/retryAfter: force leading failures (retry testing)
+ */
+function anthropicNative(options = {}) {
+  const {
+    models = [{ id: 'claude-sonnet-4-20250514', type: 'model', display_name: 'Claude Sonnet 4' }],
+    content = 'Hello from Claude mock',
+    thinking,
+    tool,
+    failTimes = 0,
+    failStatus = 529,
+    retryAfter,
+  } = options;
+
+  let calls = 0;
+
+  return startServer((req, res, body) => {
+    const path = req.url.replace(/\/+$/, '');
+    if (req.method === 'GET' && path.endsWith('/models')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: models, has_more: false }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url.includes('/messages')) {
+      calls += 1;
+      if (calls <= failTimes) {
+        const headers = { 'content-type': 'application/json' };
+        if (retryAfter !== undefined) headers['retry-after'] = String(retryAfter);
+        res.writeHead(failStatus, headers);
+        res.end(JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'temporary' } }));
+        return;
+      }
+
+      const model = body.model || 'claude-sonnet-4-20250514';
+
+      if (body.stream === true) {
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          connection: 'keep-alive',
+        });
+        const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        send('message_start', {
+          type: 'message_start',
+          message: { id: 'msg_mock', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 12, output_tokens: 0 } },
+        });
+        let index = 0;
+        if (thinking) {
+          send('content_block_start', { type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '' } });
+          send('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking } });
+          send('content_block_stop', { type: 'content_block_stop', index });
+          index += 1;
+        }
+        if (tool) {
+          send('content_block_start', { type: 'content_block_start', index, content_block: { type: 'tool_use', id: 'toolu_mock', name: tool.name, input: {} } });
+          send('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(tool.input || {}) } });
+          send('content_block_stop', { type: 'content_block_stop', index });
+          index += 1;
+          send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 7 } });
+        } else {
+          send('content_block_start', { type: 'content_block_start', index, content_block: { type: 'text', text: '' } });
+          const mid = Math.ceil(content.length / 2);
+          send('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'text_delta', text: content.slice(0, mid) } });
+          send('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'text_delta', text: content.slice(mid) } });
+          send('content_block_stop', { type: 'content_block_stop', index });
+          send('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 6 } });
+        }
+        send('message_stop', { type: 'message_stop' });
+        res.end();
+        return;
+      }
+
+      const blocks = [];
+      if (thinking) blocks.push({ type: 'thinking', thinking });
+      if (tool) blocks.push({ type: 'tool_use', id: 'toolu_mock', name: tool.name, input: tool.input || {} });
+      else blocks.push({ type: 'text', text: content });
+
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'msg_mock',
+        type: 'message',
+        role: 'assistant',
+        model,
+        content: blocks,
+        stop_reason: tool ? 'tool_use' : 'end_turn',
+        stop_sequence: null,
+        usage: { input_tokens: 12, output_tokens: 6 },
+      }));
+      return;
+    }
+
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ type: 'error', error: { message: 'not found' } }));
+  });
+}
+
+module.exports = { startServer, openAICompatible, ollamaNative, anthropicNative };
