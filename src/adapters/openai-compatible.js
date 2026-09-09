@@ -1,25 +1,28 @@
-const { applyPromptPolicy } = require('../prompt');
+'use strict';
+
+const { applyPromptPolicy } = require('../prompts');
 const { applyOpenAIReasoning } = require('../reasoning');
 const {
   providerHeaders,
   resolveModel,
   createAbortController,
   setUpstreamContentType,
-} = require('../http');
-
-function joinURL(baseURL, path) {
-  return `${String(baseURL).replace(/\/+$/, '')}/${String(path).replace(/^\/+/, '')}`;
-}
+  joinURL,
+} = require('../providers/http');
+const { fetchWithRetry } = require('./retry');
+const logger = require('../telemetry/logger');
 
 async function models(req, res, config) {
   const controller = createAbortController(req, res);
   const modelsPath = config.provider.modelsPath || 'models';
 
   try {
-    const upstream = await fetch(joinURL(config.provider.baseURL, modelsPath), {
-      headers: providerHeaders(config),
-      signal: controller.signal,
-    });
+    const upstream = await fetchWithRetry(
+      joinURL(config.provider.baseURL, modelsPath),
+      { headers: providerHeaders(config), signal: controller.signal },
+      config.retry,
+      { onRetry: (info) => logger.warn(`↻ retry models (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error) },
+    );
 
     const data = Buffer.from(await upstream.arrayBuffer());
     res.status(upstream.status);
@@ -36,7 +39,7 @@ async function models(req, res, config) {
   }
 }
 
-async function chat(req, res, config) {
+async function chat(req, res, config, options = {}) {
   const incoming = req.body || {};
   const controller = createAbortController(req, res);
 
@@ -57,28 +60,33 @@ async function chat(req, res, config) {
   const url = joinURL(config.provider.baseURL, config.provider.chatPath || 'chat/completions');
 
   if (config.logging.requests) {
-    console.log('');
-    console.log('══════════════════════════════════════════════');
-    console.log('⚡ PROMPTRELAY REQUEST · OPENAI-COMPATIBLE');
-    console.log(`Provider    : ${config.provider.name}`);
-    console.log(`Model       : ${upstreamBody.model}`);
-    console.log(`Mode        : ${config.prompt.mode}`);
-    console.log(`Stream      : ${Boolean(upstreamBody.stream)}`);
-    console.log(`Messages    : ${incoming.messages.length} → ${upstreamBody.messages.length}`);
-    console.log(`Upstream    : ${url}`);
-    console.log('══════════════════════════════════════════════');
+    logger.log('');
+    logger.log('══════════════════════════════════════════════');
+    logger.log('⚡ PROMPTRELAY REQUEST · OPENAI-COMPATIBLE');
+    logger.log(`Provider    : ${config.provider.name}`);
+    logger.log(`Model       : ${upstreamBody.model}`);
+    logger.log(`Mode        : ${config.prompt.mode}`);
+    logger.log(`Stream      : ${Boolean(upstreamBody.stream)}`);
+    logger.log(`Messages    : ${incoming.messages.length} → ${upstreamBody.messages.length}`);
+    logger.log(`Upstream    : ${url}`);
+    logger.log('══════════════════════════════════════════════');
   }
 
   try {
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers: providerHeaders(config),
-      body: JSON.stringify(upstreamBody),
-      signal: controller.signal,
-    });
+    const upstream = await fetchWithRetry(
+      url,
+      {
+        method: 'POST',
+        headers: providerHeaders(config),
+        body: JSON.stringify(upstreamBody),
+        signal: controller.signal,
+      },
+      config.retry,
+      { onRetry: (info) => logger.warn(`↻ retry chat (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error) },
+    );
 
     if (config.logging.requests) {
-      console.log(`Connected   : ${Date.now() - startedAt}ms`);
+      logger.log(`Connected   : ${Date.now() - startedAt}ms`);
     }
 
     res.status(upstream.status);
@@ -105,17 +113,24 @@ async function chat(req, res, config) {
       }
 
       if (!res.writableEnded) res.end();
-      if (config.logging.requests) console.log(`Stream done : ${Date.now() - startedAt}ms`);
+      if (config.logging.requests) logger.log(`Stream done : ${Date.now() - startedAt}ms`);
       return;
     }
 
     const data = Buffer.from(await upstream.arrayBuffer());
-    if (config.logging.requests) console.log(`Completed   : ${Date.now() - startedAt}ms`);
+    if (config.logging.requests) logger.log(`Completed   : ${Date.now() - startedAt}ms`);
     return res.send(data);
   } catch (error) {
     if (error?.name === 'AbortError') return;
 
-    console.error('PromptRelay provider error:', error);
+    // Explicit fallback (never silent): only possible before any bytes are sent.
+    if (typeof options.tryNext === 'function' && !res.headersSent) {
+      logger.warn(`⚠ provider "${config.provider.name}" failed: ${error?.message}. Trying fallback…`);
+      const handled = await options.tryNext({ error: error?.message, provider: config.provider.name });
+      if (handled) return;
+    }
+
+    logger.error('PromptRelay provider error:', error?.message || error);
     if (!res.headersSent) {
       return res.status(502).json({
         error: {

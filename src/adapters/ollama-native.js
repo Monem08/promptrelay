@@ -1,7 +1,11 @@
+'use strict';
+
 const crypto = require('crypto');
-const { applyPromptPolicy } = require('../prompt');
+const { applyPromptPolicy } = require('../prompts');
 const { incomingReasoning, toOllamaThink } = require('../reasoning');
-const { providerHeaders, resolveModel, createAbortController } = require('../http');
+const { providerHeaders, resolveModel, createAbortController } = require('../providers/http');
+const { fetchWithRetry } = require('./retry');
+const logger = require('../telemetry/logger');
 
 function randomID(prefix = 'id') {
   return `${prefix}_${crypto.randomBytes(12).toString('hex')}`;
@@ -235,10 +239,11 @@ async function models(req, res, config) {
   const modelsPath = config.provider.modelsPath || '/v1/models';
 
   try {
-    const upstream = await fetch(joinURL(config.provider.baseURL, modelsPath), {
-      headers: providerHeaders(config),
-      signal: controller.signal,
-    });
+    const upstream = await fetchWithRetry(
+      joinURL(config.provider.baseURL, modelsPath),
+      { headers: providerHeaders(config), signal: controller.signal },
+      config.retry,
+    );
     const data = Buffer.from(await upstream.arrayBuffer());
     res.status(upstream.status);
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
@@ -449,7 +454,7 @@ async function streamToOpenAI(upstream, res, requestedModel, streamOptions) {
   }
 }
 
-async function chat(req, res, config) {
+async function chat(req, res, config, options = {}) {
   const incoming = req.body || {};
   const controller = createAbortController(req, res);
   const { nativeBody, reasoning } = buildNativeBody(req, incoming, config);
@@ -458,28 +463,33 @@ async function chat(req, res, config) {
   const url = joinURL(config.provider.baseURL, chatPath);
 
   if (config.logging.requests) {
-    console.log('');
-    console.log('══════════════════════════════════════════════');
-    console.log('☢️ PROMPTRELAY REQUEST · OLLAMA NATIVE');
-    console.log(`Provider    : ${config.provider.name}`);
-    console.log(`Model       : ${nativeBody.model}`);
-    console.log(`Mode        : ${config.prompt.mode}`);
-    console.log(`Reasoning   : ${reasoning}`);
-    console.log(`Stream      : ${nativeBody.stream}`);
-    console.log(`Tools       : ${nativeBody.tools?.length || 0}`);
-    console.log(`Upstream    : ${url}`);
-    console.log('══════════════════════════════════════════════');
+    logger.log('');
+    logger.log('══════════════════════════════════════════════');
+    logger.log('☢️ PROMPTRELAY REQUEST · OLLAMA NATIVE');
+    logger.log(`Provider    : ${config.provider.name}`);
+    logger.log(`Model       : ${nativeBody.model}`);
+    logger.log(`Mode        : ${config.prompt.mode}`);
+    logger.log(`Reasoning   : ${reasoning}`);
+    logger.log(`Stream      : ${nativeBody.stream}`);
+    logger.log(`Tools       : ${nativeBody.tools?.length || 0}`);
+    logger.log(`Upstream    : ${url}`);
+    logger.log('══════════════════════════════════════════════');
   }
 
   try {
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers: providerHeaders(config),
-      body: JSON.stringify(nativeBody),
-      signal: controller.signal,
-    });
+    const upstream = await fetchWithRetry(
+      url,
+      {
+        method: 'POST',
+        headers: providerHeaders(config),
+        body: JSON.stringify(nativeBody),
+        signal: controller.signal,
+      },
+      config.retry,
+      { onRetry: (info) => logger.warn(`↻ retry ollama chat (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error) },
+    );
 
-    if (config.logging.requests) console.log(`Connected   : ${Date.now() - startedAt}ms`);
+    if (config.logging.requests) logger.log(`Connected   : ${Date.now() - startedAt}ms`);
 
     if (!upstream.ok) {
       const text = await upstream.text();
@@ -495,17 +505,25 @@ async function chat(req, res, config) {
 
     if (incoming.stream === true) {
       await streamToOpenAI(upstream, res, nativeBody.model, incoming.stream_options);
-      if (config.logging.requests) console.log(`Stream done : ${Date.now() - startedAt}ms`);
+      if (config.logging.requests) logger.log(`Stream done : ${Date.now() - startedAt}ms`);
       return;
     }
 
     const native = await upstream.json();
     const converted = convertNonStream(native, nativeBody.model);
-    if (config.logging.requests) console.log(`Completed   : ${Date.now() - startedAt}ms`);
+    if (config.logging.requests) logger.log(`Completed   : ${Date.now() - startedAt}ms`);
     return res.json(converted);
   } catch (error) {
     if (error?.name === 'AbortError') return;
-    console.error('PromptRelay Ollama adapter error:', error);
+
+    // Explicit fallback (never silent): only possible before any bytes are sent.
+    if (typeof options.tryNext === 'function' && !res.headersSent) {
+      logger.warn(`⚠ provider "${config.provider.name}" failed: ${error?.message}. Trying fallback…`);
+      const handled = await options.tryNext({ error: error?.message, provider: config.provider.name });
+      if (handled) return;
+    }
+
+    logger.error('PromptRelay Ollama adapter error:', error?.message || error);
     if (!res.headersSent) {
       return res.status(502).json({
         error: {

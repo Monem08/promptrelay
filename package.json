@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "check": "node --check bin/promptrelay.js && node --check src/server.js && node --check src/config.js && node --check src/prompt.js && node --check src/reasoning.js && node --check src/http.js && node --check src/adapters/openai-compatible.js && node --check src/adapters/ollama-native.js",
+    "check": "node scripts/check.js",
     "test": "node --test",
     "prepublishOnly": "npm run check && npm test"
   },
