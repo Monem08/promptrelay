@@ -10,7 +10,7 @@ const cli = path.resolve(__dirname, '..', 'bin', 'promptrelay.js');
 test('CLI prints package version', () => {
   const result = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
   assert.equal(result.status, 0);
-  assert.match(result.stdout.trim(), /^1\.1\.0$/);
+  assert.match(result.stdout.trim(), /^1\.1\.1$/);
 });
 
 test('CLI help exposes setup and provider wizard commands', () => {
