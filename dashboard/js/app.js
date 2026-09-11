@@ -2,7 +2,7 @@
 // Vanilla ES modules. No framework, no build step. Served static by Express.
 
 import { api, ApiError, clearCache } from './api.js';
-import { h, clear, icon, iconBtn, btn, statusDot, toast, openOverlay, closeOverlay, errorState } from './ui.js';
+import { h, clear, icon, iconBtn, btn, statusDot, toast, openOverlay, closeOverlay, errorState, createLogo } from './ui.js';
 
 import * as overview from './pages/overview.js';
 import * as clients from './pages/clients.js';
@@ -61,17 +61,23 @@ function build() {
   navEl = h('nav.nav', { 'aria-label': 'Primary' });
   const sidebar = h('aside.sidebar', {}, [
     h('div.sidebar-brand', {}, [
-      h('div.brand-mark', {}, [icon('zap')]),
-      h('span.brand-name', {}, ['PromptRelay']),
+      createLogo('promptrelay', { size: 30, className: 'brand-mark' }),
+      h('span.brand-name', {}, ['Prompt', h('span.brand-accent', {}, ['Relay'])]),
     ]),
-    navEl,
-    h('div.nav-footer', {}, [
-      h('span.ver-text', { id: 'ver-text' }, ['Dashboard']),
+    h('div.sidebar-scroll', {}, [
+      navEl,
+      h('div.sidebar-bottom', {}, [
+        h('div.nav-footer', {}, [
+          h('span.ver-text', { id: 'ver-text' }, ['PromptRelay 1.2.0']),
+        ]),
+      ]),
     ]),
   ]);
 
   // ----- Topbar -----
   const menuBtn = iconBtn('menu', { title: 'Toggle navigation', cls: 'only-mobile', onClick: toggleMobileNav });
+  menuBtn.setAttribute('aria-expanded', 'false');
+  menuBtn.setAttribute('aria-label', 'Open navigation menu');
   const collapseBtn = iconBtn('chevron', { title: 'Collapse sidebar', cls: 'only-desktop', onClick: toggleCollapsed });
   const search = h('button.topbar-search', { onclick: openCommandPalette, 'aria-label': 'Open command palette' }, [
     icon('search'),

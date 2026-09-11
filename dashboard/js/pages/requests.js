@@ -1,8 +1,7 @@
-// Requests — a privacy-first request inspector. Metadata only, never prompt bodies.
 import { api } from '../api.js';
 import {
   h, icon, btn, iconBtn, badge, statusDot, skeleton, toast, dialog, drawer, closeOverlay,
-  emptyState, errorState, fmtVal, fmtBool, fmtMs, fmtTime, timeAgo, unknownSpan, UNKNOWN, copyText,
+  emptyState, errorState, fmtVal, fmtBool, fmtMs, fmtTime, timeAgo, unknownSpan, UNKNOWN, copyText, createLogo,
 } from '../ui.js';
 
 function statusCell(entry) {
@@ -90,8 +89,8 @@ export async function render(page, ctx) {
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetails(r.id); } },
     }, [
       h('td', { title: fmtTime(r.time) }, [h('span.muted', { style: 'font-size:var(--fs-xs)' }, [timeAgo(r.time)])]),
-      h('td', {}, [fmtVal(r.client)]),
-      h('td', {}, [fmtVal(r.provider)]),
+      h('td', {}, [h('div.row.gap-6', {}, [createLogo(r.client, { size: 16 }), h('span', {}, [fmtVal(r.client)])])]),
+      h('td', {}, [h('div.row.gap-6', {}, [createLogo(r.provider, { size: 16 }), h('span', {}, [fmtVal(r.provider)])])]),
       h('td', {}, [h('span.mono', { style: 'font-size:var(--fs-xs)' }, [r.model && r.model !== UNKNOWN ? r.model : '—'])]),
       h('td', {}, [statusCell(r)]),
       h('td', {}, [fmtMs(r.ttftMs)]),

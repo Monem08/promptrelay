@@ -1,7 +1,6 @@
-// Router — routing modes, constraints, candidate ranking, per-client, fallback.
 import { api, clearCache } from '../api.js';
 import {
-  h, icon, btn, badge, statusDot, skeleton, toast, dialog, closeOverlay, emptyState,
+  h, icon, btn, badge, statusDot, skeleton, toast, dialog, closeOverlay, emptyState, createLogo,
 } from '../ui.js';
 
 // UI modes → backend profile id (or null for UI-only constraint modes)
@@ -68,7 +67,10 @@ function renderCandidates(holder) {
           h('div.metric-value', { style: 'font-size:var(--fs-lg);color:var(--text-3);width:28px' }, [`#${i + 1}`]),
           h('div', { style: 'min-width:0' }, [
             h('div.mono', { style: 'font-weight:600;overflow:hidden;text-overflow:ellipsis' }, [c.id]),
-            h('div.muted', { style: 'font-size:var(--fs-xs)' }, [c.provider || '']),
+            h('div.muted.row.gap-6', { style: 'font-size:var(--fs-xs);align-items:center' }, [
+              createLogo(c.provider || c.id, { size: 14 }),
+              h('span', {}, [c.provider || '']),
+            ]),
           ]),
         ]),
         h('div.row.gap-8', {}, [badge(`Score ${c.score}`, 'violet'), btn('Why?', { sm: true, variant: 'ghost', onClick: () => whyDialog(c) })]),

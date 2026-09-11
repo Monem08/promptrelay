@@ -8,8 +8,13 @@ export function h(tag, props = {}, children = []) {
   const tagName = parts[0].match(/^[a-z0-9]+/i) ? parts[0].replace(/[.#].*/, '') : 'div';
   el = document.createElement(tagName || 'div');
   for (const p of parts.slice(parts[0].match(/^[.#]/) ? 0 : 1)) {
-    if (p.startsWith('.')) el.classList.add(p.slice(1));
-    else if (p.startsWith('#')) el.id = p.slice(1);
+    if (p.startsWith('.')) {
+      const c = p.slice(1);
+      if (c) el.classList.add(c);
+    } else if (p.startsWith('#')) {
+      const id = p.slice(1);
+      if (id) el.id = id;
+    }
   }
   if (props && typeof props === 'object' && !Array.isArray(props) && !(props instanceof Node)) {
     for (const [k, v] of Object.entries(props)) {
@@ -174,25 +179,65 @@ let activeOverlay = null;
 export function openOverlay(node, { onClose } = {}) {
   closeOverlay();
   const root = document.getElementById('overlay-root');
+  const appEl = document.getElementById('app');
+  const previousActiveElement = document.activeElement;
+
   const scrim = h('div.overlay', { onclick: () => closeOverlay() });
   root.appendChild(scrim);
   root.appendChild(node);
-  const onKey = (e) => { if (e.key === 'Escape') closeOverlay(); };
+
+  if (appEl) {
+    appEl.setAttribute('aria-hidden', 'true');
+    if ('inert' in appEl) appEl.inert = true;
+  }
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeOverlay();
+      return;
+    }
+    if (e.key === 'Tab') {
+      const focusables = Array.from(node.querySelectorAll('input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'));
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
+
   document.addEventListener('keydown', onKey);
-  activeOverlay = { nodes: [scrim, node], onKey, onClose };
+  activeOverlay = { nodes: [scrim, node], onKey, onClose, previousActiveElement };
+
   // focus first focusable
   setTimeout(() => {
-    const f = node.querySelector('input,button,textarea,select,[tabindex]');
+    const f = node.querySelector('input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])');
     if (f) f.focus();
-  }, 30);
+  }, 40);
+
   return closeOverlay;
 }
 
 export function closeOverlay() {
   if (!activeOverlay) return;
+  const appEl = document.getElementById('app');
+  if (appEl) {
+    appEl.removeAttribute('aria-hidden');
+    if ('inert' in appEl) appEl.inert = false;
+  }
+
   document.removeEventListener('keydown', activeOverlay.onKey);
   activeOverlay.nodes.forEach((n) => n.remove());
   if (activeOverlay.onClose) activeOverlay.onClose();
+  if (activeOverlay.previousActiveElement && typeof activeOverlay.previousActiveElement.focus === 'function') {
+    try { activeOverlay.previousActiveElement.focus(); } catch {}
+  }
   activeOverlay = null;
 }
 
@@ -280,3 +325,5 @@ export function healthTone(h) {
 export function copyText(text, label = 'Copied') {
   navigator.clipboard?.writeText(text).then(() => toast(label, { type: 'success', timeout: 1500 })).catch(() => {});
 }
+
+export { createLogo } from './logos.js';

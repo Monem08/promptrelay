@@ -1,8 +1,7 @@
-// Overview — the command center.
 import { api, clearCache } from '../api.js';
 import {
   h, icon, btn, badge, statusDot, skeleton, skeletonCards, toast,
-  fmtNum, fmtMs, fmtTime, timeAgo, healthTone,
+  fmtNum, fmtMs, fmtTime, timeAgo, healthTone, createLogo,
 } from '../ui.js';
 
 function metric(label, value, foot, unknown) {
@@ -101,10 +100,13 @@ export async function render(page, ctx) {
       const label = !cl.found ? 'Not configured' : cl.configured ? 'Connected' : 'Detected';
       return h('div.card', {}, [
         h('div.row-between.mb-12', {}, [
-          h('div.card-title', {}, [cl.label]),
+          h('div.row.gap-10', { style: 'min-width:0' }, [
+            createLogo(cl.id, { size: 28 }),
+            h('div.card-title.truncate', {}, [cl.label]),
+          ]),
           statusDot(tone, label),
         ]),
-        h('div.muted', { style: 'font-size:var(--fs-sm)' }, [cl.protocol === 'anthropic' ? 'Anthropic Messages' : 'OpenAI ingress']),
+        h('div.muted', { style: 'font-size:var(--fs-sm)' }, [cl.protocol === 'anthropic' ? 'Anthropic Messages API' : 'OpenAI-compatible ingress']),
         h('div.dl.mt-12', {}, [
           h('dt', {}, ['Endpoint']), h('dd', {}, [h('span.mono', {}, [cl.endpoint || '—'])]),
           h('dt', {}, ['Model']), h('dd', {}, [h('span.mono', {}, [(cl.details && cl.details.model) || 'Auto'])]),

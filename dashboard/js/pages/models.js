@@ -1,8 +1,7 @@
-// Models — the Model Explorer + details drawer.
 import { api, clearCache } from '../api.js';
 import {
   h, icon, btn, badge, statusDot, skeleton, toast, emptyState, drawer, closeOverlay,
-  fmtBool, fmtNum, fmtTime, copyText,
+  fmtBool, fmtNum, fmtTime, copyText, createLogo,
 } from '../ui.js';
 
 const state = { models: [], source: null, q: '', chips: new Set(), ctx: null, sort: 'recommended', provider: 'all' };
@@ -129,7 +128,7 @@ function drawerFor(m, ctx) {
 function renderTable(list, ctx) {
   const rows = list.map((m) => h('tr', { onclick: () => drawerFor(m, ctx), tabindex: '0', onkeydown: (e) => { if (e.key === 'Enter') drawerFor(m, ctx); } }, [
     h('td.mono', {}, [m.id]),
-    h('td', {}, [isUnknown(m.provider) ? unknownSpan() : m.provider]),
+    h('td', {}, [h('div.row.gap-8', {}, [createLogo(m.provider || m.id, { size: 18 }), h('span', {}, [isUnknown(m.provider) ? unknownSpan() : m.provider])])]),
     h('td', {}, [ctxLabel(m.contextWindow)]),
     h('td', {}, [m.maxOutputTokens && !isUnknown(m.maxOutputTokens) ? h('span.mono', {}, [fmtNum(num(m.maxOutputTokens))]) : unknownSpan()]),
     h('td', {}, [capDot(m.tools)]),
