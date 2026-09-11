@@ -17,11 +17,14 @@
  * empty state — no fabricated traffic is ever produced.
  */
 
+const EventEmitter = require('events');
+
 const MAX_ENTRIES = 250;
 
 /** @type {object[]} newest last */
 const buffer = [];
 let counter = 0;
+const emitter = new EventEmitter();
 
 function makeId() {
   counter += 1;
@@ -57,6 +60,7 @@ function record(entry = {}) {
     cost: typeof entry.cost === 'number' ? entry.cost : 'unknown',
     fallback: Boolean(entry.fallback),
     retries: typeof entry.retries === 'number' ? entry.retries : 0,
+    providerAttempts: typeof entry.providerAttempts === 'number' ? entry.providerAttempts : 1,
     error: entry.error ? String(entry.error).slice(0, 300) : null,
   };
   if (rec.ok === undefined) {
@@ -64,6 +68,7 @@ function record(entry = {}) {
   }
   buffer.push(rec);
   while (buffer.length > MAX_ENTRIES) buffer.shift();
+  emitter.emit('record', rec);
   return rec;
 }
 
@@ -185,4 +190,8 @@ module.exports = {
   count,
   clear,
   metrics,
+  events: emitter,
+  on: (event, listener) => emitter.on(event, listener),
+  off: (event, listener) => emitter.off(event, listener),
+  once: (event, listener) => emitter.once(event, listener),
 };

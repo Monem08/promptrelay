@@ -1,16 +1,19 @@
 # ⚡ PromptRelay
 
-**A provider-agnostic system-prompt gateway for [OpenCode](https://opencode.ai) and any OpenAI-compatible client.**
+**Automatic multi-client (OpenCode, Claude Code, Hermes), multi-protocol, multi-provider local AI gateway and prompt engineering studio.**
 
-PromptRelay sits between your coding agent and your LLM provider. It injects (or replaces) your system prompt, normalizes reasoning effort across providers, streams responses, forwards tool calls, and gives you smart retries and explicit fallback — all with a single local endpoint and zero runtime dependencies beyond Express.
+PromptRelay sits between your coding agents and your LLM providers. It injects (or replaces) system prompts, normalizes reasoning effort across providers, streams responses, forwards tool calls, and provides smart retries, explicit fallbacks, and real-time observability — all with a single local endpoint and zero runtime dependencies beyond Express.
 
 ```
-OpenCode ──▶ PromptRelay (localhost:4141) ──▶ OpenRouter / Ollama / any OpenAI-compatible API
-                    │
-                    ├─ injects your system prompt
-                    ├─ maps reasoning effort per provider
-                    ├─ retries transient failures (429/502/503/504)
-                    └─ falls back explicitly (never silently)
+OpenCode (OpenAI)       ──┐
+Claude Code (Anthropic) ──┼──▶ PromptRelay (localhost:4141) ──▶ OpenRouter / Anthropic / Ollama / Custom
+Hermes (OpenAI)         ──┘        │
+                                   ├─ OpenAI /v1/chat/completions & Anthropic /v1/messages
+                                   ├─ per-client routing profiles & scoped prompts
+                                   ├─ atomic safe-writes with automatic backups
+                                   ├─ cross-platform background service (Windows, macOS, Linux)
+                                   ├─ self-healing diagnostics & automated doctor repair
+                                   └─ real-time dashboard with SSE telemetry
 ```
 
 ---
@@ -324,76 +327,102 @@ intentionally unavailable. Data is real — when a value is not known it is show
 
 ## HTTP API
 
-PromptRelay exposes an OpenAI-compatible surface on `http://127.0.0.1:4141` (configurable):
+PromptRelay exposes a dual-protocol surface on `http://127.0.0.1:4141` (configurable):
 
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/` | Service info + endpoint index. |
 | `GET` | `/health` | Liveness + version. |
 | `GET` | `/v1/models` | Model list (proxied/normalized from the active provider). |
-| `POST` | `/v1/chat/completions` | Chat completions — streaming (SSE) and non-streaming, with tool-call passthrough. |
+| `POST` | `/v1/chat/completions` | OpenAI Chat Completions API — streaming (SSE) and non-streaming, tool-calls, reasoning. |
+| `POST` | `/v1/messages` | Anthropic Messages API — streaming (SSE) and non-streaming, tool_use, thoughts/reasoning. |
+| `GET` | `/api/dashboard/stream` | Server-Sent Events (SSE) stream for real-time telemetry events. |
 
-Point any OpenAI-compatible client at this base URL. Streaming, tool calls, and usage accounting are preserved end-to-end.
+Point any OpenAI-compatible or Anthropic Messages client at this base URL. Streaming, tool calls, and usage accounting are preserved end-to-end.
 
 ---
 
 ## CLI reference
 
 ```
-Quick start
-  promptrelay setup                    Interactive setup (provider → key → discovery → model → prompt → OpenCode)
-  promptrelay start                    Start the gateway
-  promptrelay doctor                   Diagnose your configuration
+Quick start:
+  promptrelay setup [--auto] [--dry-run] [--no-start]  Setup wizard (auto/dry-run supported)
+  promptrelay start                                    Start the gateway
+  promptrelay doctor [--deep] [--fix]                  Diagnose and repair your configuration
 
-Lifecycle
-  promptrelay start [--daemon]         Start (foreground, or background with --daemon)
-  promptrelay stop                     Stop a running gateway
-  promptrelay restart                  Restart the gateway
-  promptrelay status                   Show running status + live /health
+Lifecycle:
+  promptrelay start [--daemon]                         Start (foreground, or background with --daemon)
+  promptrelay stop                                     Stop a running gateway
+  promptrelay restart                                  Restart the gateway
+  promptrelay status                                   Show running status + live /health
 
-Providers
-  promptrelay provider                 Interactive provider/model wizard
-  promptrelay provider list            List configured provider profiles
-  promptrelay provider add             Add a provider profile (interactive)
-  promptrelay provider use <name>      Switch the active provider profile
-  promptrelay provider test [--live]   Health-check the active provider
-  promptrelay provider remove <name>   Remove a provider profile
+Service (OS Daemon):
+  promptrelay service install                          Install user-level background service
+  promptrelay service start                            Start background service
+  promptrelay service stop                             Stop background service
+  promptrelay service restart                          Restart background service
+  promptrelay service status                           Show background service status
+  promptrelay service uninstall                        Uninstall background service
 
-Models
-  promptrelay models list [--json]     Discover & list provider models
-  promptrelay models free              List verified free models
-  promptrelay models refresh           Refresh the model cache
-  promptrelay models recommend [--profile <p>]   Recommend a model
-  promptrelay model use <id>           Set the active model
+Providers:
+  promptrelay provider                                 Interactive provider/model wizard
+  promptrelay provider list                            List configured provider profiles
+  promptrelay provider add                             Add a provider profile (interactive)
+  promptrelay provider use <name>                      Switch the active provider profile
+  promptrelay provider test [--live]                   Health-check the active provider
+  promptrelay provider remove <name>                   Remove a provider profile
 
-Auto & reasoning
-  promptrelay auto [--profile <p>]     Auto-select the best model for a profile
-  promptrelay reasoning list           List reasoning levels
-  promptrelay reasoning set <lvl>      Set default reasoning (none…max, or auto)
+Models:
+  promptrelay models list [--json]                     Discover & list provider models
+  promptrelay models free                              List verified free models
+  promptrelay models refresh [--clear]                 Refresh (or clear) the model cache
+  promptrelay models recommend [--profile <p>]         Recommend a model
+  promptrelay model use <id>                           Set the active model
 
-Prompt & config
-  promptrelay prompt                   Open your custom system prompt
-  promptrelay prompt use <file>        Load a prompt from a file
-  promptrelay config                   Open the config file
-  promptrelay config validate          Validate the config
+Auto & reasoning:
+  promptrelay auto [--profile <p>]                     Auto-select the best model for a profile
+  promptrelay reasoning list                           List reasoning levels
+  promptrelay reasoning set <lvl>                      Set default reasoning (none…max, or auto)
 
-OpenCode
-  promptrelay opencode                 Set up OpenCode integration
-  promptrelay opencode status          Show OpenCode integration status
-  promptrelay opencode repair          Re-merge the PromptRelay provider
+Prompt & config:
+  promptrelay prompt                                   Open your custom system prompt
+  promptrelay prompt use <file>                        Load a prompt from a file
+  promptrelay config                                   Open the config file
+  promptrelay config validate                          Validate the config
+  promptrelay config migrate [--dry-run]               Migrate config schema with backups
+  promptrelay config backups                           List timestamped configuration backups
+  promptrelay config restore <id>                      Restore configuration from a backup
 
-Keys
-  promptrelay keys set <ENV> <val>     Store a secret in ~/.promptrelay/.env
-  promptrelay keys list                List stored key names (masked)
-  promptrelay keys remove <ENV>        Remove a stored secret
+OpenCode:
+  promptrelay opencode                                 Set up OpenCode integration
+  promptrelay opencode status                          Show OpenCode integration status
+  promptrelay opencode repair                          Re-merge the PromptRelay provider
 
-Other
-  promptrelay init                     Create config files without overwriting
-  promptrelay dashboard                Open the web dashboard (starts gateway if needed)
-  promptrelay dashboard --print        Print the terminal status dashboard instead
-  promptrelay path                     Print ~/.promptrelay path
-  promptrelay --version                Print version
-  promptrelay --help                   Show this help
+Clients (multi-client integration):
+  promptrelay client list                              List supported clients (OpenCode, Claude Code, Hermes)
+  promptrelay client detect                            Detect which clients are installed/configured
+  promptrelay client status [id]                       Show PromptRelay wiring status for a client (or all)
+  promptrelay client setup <id>                        Wire a client to PromptRelay (--model, --small-model)
+  promptrelay client repair <id>                       Re-apply the PromptRelay wiring for a client
+  promptrelay client validate <id>                     Validate client configuration against expected schema
+  promptrelay client remove <id>                       Remove PromptRelay wiring (restores backup-safe)
+
+Compatibility aliases:
+  promptrelay repair <client>                          Alias for promptrelay client repair <client>
+  promptrelay refresh --clear                          Alias for promptrelay models refresh --clear
+
+Keys:
+  promptrelay keys set <ENV> <val>                     Store a secret in ~/.promptrelay/.env
+  promptrelay keys list                                List stored key names (masked)
+  promptrelay keys remove <ENV>                        Remove a stored secret
+
+Other:
+  promptrelay init                                     Create config files without overwriting
+  promptrelay dashboard                                Open the web dashboard (starts gateway if needed)
+  promptrelay dashboard --print                        Print the terminal status dashboard instead
+  promptrelay path                                     Print ~/.promptrelay path
+  promptrelay --version                                Print version
+  promptrelay --help                                   Show this help
 ```
 
 ---
@@ -404,7 +433,7 @@ Other
 
 ```jsonc
 {
-  "version": 2,
+  "version": 3,
 
   "server": {
     "host": "127.0.0.1",
@@ -412,14 +441,27 @@ Other
   },
 
   "prompt": {
-    "mode": "replace",                 // "replace" or "inject"
+    "mode": "replace",                 // "replace", "prepend", "append", or "passthrough"
     "file": "system_prompt.txt",
     "placeholder": "{Paste your instructions here}"
   },
 
-  "provider": {                        // legacy inline provider (still supported)
+  "promptScopes": {                    // per-client prompt overrides
+    "opencode": { "file": "system_prompt_opencode.txt", "mode": "prepend" },
+    "claude-code": { "file": "system_prompt_claude.txt", "mode": "append" }
+  },
+
+  "routing": {
+    "profile": "balanced",             // global routing profile
+    "clients": {                       // per-client routing profile overrides
+      "opencode": "coding",
+      "claude-code": "reasoning"
+    }
+  },
+
+  "provider": {                        // inline active provider
     "name": "OpenRouter",
-    "transport": "openai-compatible",  // or "ollama-native"
+    "transport": "openai-compatible",  // or "ollama-native" / "anthropic-native"
     "baseURL": "https://openrouter.ai/api/v1",
     "model": "openrouter/auto",
     "forceModel": true,
@@ -476,17 +518,22 @@ PromptRelay is organized into small, focused modules:
 ```
 bin/promptrelay.js        Thin CLI router (argv → command)
 src/
-  cli/                    Command handlers + interactive wizard
-  config/                 Versioned schema, validation, migrations, loading
-  providers/              Registry, presets, URL normalization
+  cli/                    Command handlers, setup wizard, IO utilities
+  clients/                Coding client adapters (OpenCode, Claude Code, Hermes)
+  config/                 Versioned schema, safe atomic writes, backups, migrations
+  doctor/                 Self-healing diagnostics and automated repair engine
+  ir/                     Canonical Intermediate Representation (OpenAI <-> Anthropic)
   models/                 Discovery, capability metadata, cache, ranking
+  prompts/                Global and per-client prompt scopes
+  providers/              Registry, presets, URL normalization, credentials
   reasoning/              Effort scale + per-provider mappings
-  adapters/               openai-compatible + ollama-native transports,
-                          retry/backoff, fallback chain
-  opencode/               JSONC parser + non-destructive config merge
-  telemetry/              Secret masking / log redaction
-  server/                 Express app factory + routes
+  routing/                Runtime routing engine shared across ingress endpoints
+  adapters/               openai-compatible, anthropic-native, ollama-native transports
+  server/                 Express app, OpenAI & Anthropic ingress, dashboard backend
+  service/                Cross-platform OS service manager (systemd, launchd, schtasks)
+  telemetry/              Secret masking, log redaction, in-memory telemetry buffer
   testing/                Mock provider servers + integration harness
+dashboard/                Vanilla modern SPA (Overview, Clients, Models, Router, Prompt Studio, etc.)
 ```
 
 Design principles: **preserve existing behavior**, **never fabricate data** (use `unknown`), **explicit over silent**, and **no runtime dependencies beyond Express**.

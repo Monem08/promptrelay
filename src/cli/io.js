@@ -22,7 +22,8 @@ function ensureHome() {
 }
 
 function writeJson(file, value) {
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  const { safeWriteJsonSync } = require('../config/safe-write');
+  safeWriteJsonSync(file, value);
 }
 
 function readJsonIfExists(file, fallback = {}) {

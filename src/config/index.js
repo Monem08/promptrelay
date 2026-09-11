@@ -181,12 +181,18 @@ function safeConfig(config) {
 function collectSecrets(config) {
   const secrets = [];
   if (config?.provider?.apiKey) secrets.push(config.provider.apiKey);
+  if (config?.security?.dashboardToken) secrets.push(config.security.dashboardToken);
+  if (config?.security?.gatewayAuth?.token) secrets.push(config.security.gatewayAuth.token);
+  if (config?.server?.apiKey) secrets.push(config.server.apiKey);
+  if (process.env.PROMPTRELAY_GATEWAY_KEY) secrets.push(process.env.PROMPTRELAY_GATEWAY_KEY);
+  if (process.env.PROMPTRELAY_DASHBOARD_TOKEN) secrets.push(process.env.PROMPTRELAY_DASHBOARD_TOKEN);
   const headers = config?.provider?.headers || {};
   for (const value of Object.values(headers)) {
     if (typeof value === 'string' && value.length > 8) secrets.push(value);
   }
-  return secrets;
+  return secrets.filter((s) => typeof s === 'string' && s.length > 0);
 }
+
 
 module.exports = {
   PACKAGE_ROOT,
@@ -202,4 +208,6 @@ module.exports = {
   loadEnvFile,
   collectSecrets,
   resolveActiveProvider,
+  safeWrite: require('./safe-write'),
+  backups: require('./backups'),
 };

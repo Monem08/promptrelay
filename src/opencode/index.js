@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { parseJSONC } = require('./jsonc');
+const { updateProviderInJSONC, removeProviderFromJSONC } = require('./jsonc-edit');
 const { UNKNOWN } = require('../models/schema');
 
 /**
@@ -137,13 +138,25 @@ function setupOpenCode(params) {
     const raw = fs.readFileSync(located.path, 'utf8');
     existing = parseJSONC(raw); // throws on invalid JSONC
     backupPath = backupFile(located.path);
+    const merged = mergeProvider(existing, providerBlock);
+
+    const { safeWriteSync } = require('../config/safe-write');
+    try {
+      const updated = updateProviderInJSONC(raw, PROVIDER_ID, merged.provider[PROVIDER_ID]);
+      parseJSONC(updated);
+      const res = safeWriteSync({ filePath: located.path, content: updated });
+      if (res.backupPath) backupPath = res.backupPath;
+    } catch {
+      // Safe fallback: standard formatted JSON
+      const res = safeWriteSync({ filePath: located.path, content: `${JSON.stringify(merged, null, 2)}\n` });
+      if (res.backupPath) backupPath = res.backupPath;
+    }
   } else {
     created = true;
-    fs.mkdirSync(path.dirname(located.path), { recursive: true });
+    const { safeWriteSync } = require('../config/safe-write');
+    const merged = mergeProvider({}, providerBlock);
+    safeWriteSync({ filePath: located.path, content: `${JSON.stringify(merged, null, 2)}\n` });
   }
-
-  const merged = mergeProvider(existing, providerBlock);
-  fs.writeFileSync(located.path, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
 
   return {
     path: located.path,
@@ -151,6 +164,28 @@ function setupOpenCode(params) {
     created,
     merged: !created,
   };
+}
+
+/**
+ * Remove PromptRelay from OpenCode config, preserving comments and formatting.
+ * @param {string} [targetPath]
+ * @returns {{ removed: boolean, path: string|null, backupPath: string|null }}
+ */
+function removeOpenCode(targetPath) {
+  const located = targetPath
+    ? { found: fs.existsSync(targetPath), path: targetPath }
+    : locateConfig();
+  if (!located.found) {
+    return { removed: false, path: located.path || null, backupPath: null, note: 'No OpenCode config found.' };
+  }
+
+  const raw = fs.readFileSync(located.path, 'utf8');
+  const backupPath = backupFile(located.path);
+  const { text: updated, removed } = removeProviderFromJSONC(raw, PROVIDER_ID);
+  if (removed) {
+    fs.writeFileSync(located.path, updated, 'utf8');
+  }
+  return { removed, path: located.path, backupPath };
 }
 
 /**
@@ -179,5 +214,7 @@ module.exports = {
   buildProviderBlock,
   mergeProvider,
   setupOpenCode,
+  removeOpenCode,
   statusOpenCode,
 };
+

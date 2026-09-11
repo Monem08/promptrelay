@@ -82,11 +82,8 @@ export async function render(page, ctx) {
     h('span.muted-3', { style: 'font-size:var(--fs-xs)' }, ['In-memory ring buffer — cleared on gateway restart']),
   ]));
 
-  // ---- desktop table ----
-  const COLS = ['Time', 'Client', 'Provider', 'Model', 'Status', 'TTFT', 'Total', 'Reasoning', 'Tools', 'Tokens', 'Cost', 'Fallback'];
-  const tbody = h('tbody');
-  rows.forEach((r) => {
-    const tr = h('tr', {
+  function makeRow(r) {
+    return h('tr', {
       tabindex: '0', role: 'button', 'aria-label': `Request ${r.id} details`,
       style: 'cursor:pointer',
       onclick: () => openDetails(r.id),
@@ -105,22 +102,10 @@ export async function render(page, ctx) {
       h('td', {}, [costShort(r.cost)]),
       h('td', {}, [r.fallback ? badge('Yes', 'amber') : h('span.muted-3', { style: 'font-size:var(--fs-xs)' }, ['No'])]),
     ]);
-    tbody.appendChild(tr);
-  });
-  const table = h('div.table-wrap.only-desktop', { style: 'display:block' }, [
-    h('div.table-scroll', {}, [
-      h('table.data', {}, [
-        h('thead', {}, [h('tr', {}, COLS.map((c) => h('th', {}, [c])))]),
-        tbody,
-      ]),
-    ]),
-  ]);
-  page.appendChild(table);
+  }
 
-  // ---- mobile cards ----
-  const mobile = h('div.only-mobile.stack', { style: 'gap:10px' });
-  rows.forEach((r) => {
-    mobile.appendChild(h('div.card.card-hover', {
+  function makeCard(r) {
+    return h('div.card.card-hover', {
       tabindex: '0', role: 'button', style: 'cursor:pointer',
       onclick: () => openDetails(r.id),
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetails(r.id); } },
@@ -142,9 +127,45 @@ export async function render(page, ctx) {
         h('span.muted-3', {}, ['Tokens ', tokensShort(r.tokens)]),
         r.fallback ? badge('Fallback', 'amber') : h('span'),
       ]),
-    ]));
-  });
+    ]);
+  }
+
+  // ---- desktop table ----
+  const COLS = ['Time', 'Client', 'Provider', 'Model', 'Status', 'TTFT', 'Total', 'Reasoning', 'Tools', 'Tokens', 'Cost', 'Fallback'];
+  const tbody = h('tbody');
+  rows.forEach((r) => tbody.appendChild(makeRow(r)));
+  const table = h('div.table-wrap.only-desktop', { style: 'display:block' }, [
+    h('div.table-scroll', {}, [
+      h('table.data', {}, [
+        h('thead', {}, [h('tr', {}, COLS.map((c) => h('th', {}, [c])))]),
+        tbody,
+      ]),
+    ]),
+  ]);
+  page.appendChild(table);
+
+  // ---- mobile cards ----
+  const mobile = h('div.only-mobile.stack', { style: 'gap:10px' });
+  rows.forEach((r) => mobile.appendChild(makeCard(r)));
   page.appendChild(mobile);
+
+  // ---- real-time SSE stream ----
+  let es = null;
+  try {
+    es = new EventSource('/api/dashboard/stream');
+    es.addEventListener('request', (e) => {
+      try {
+        const newReq = JSON.parse(e.data);
+        if (newReq && newReq.id) {
+          tbody.insertBefore(makeRow(newReq), tbody.firstChild);
+          mobile.insertBefore(makeCard(newReq), mobile.firstChild);
+          if (tbody.children.length > 200) tbody.removeChild(tbody.lastChild);
+          if (mobile.children.length > 200) mobile.removeChild(mobile.lastChild);
+        }
+      } catch {}
+    });
+  } catch {}
+  window.addEventListener('hashchange', () => { if (es) { es.close(); es = null; } }, { once: true });
 
   async function openDetails(id) {
     const body = h('div', {}, [skeleton('skeleton-line', 'width:60%'), skeleton('skeleton-line', 'width:40%')]);

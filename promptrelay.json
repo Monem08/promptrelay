@@ -29,5 +29,8 @@
   },
   "logging": {
     "requests": true
+  },
+  "routing": {
+    "profile": "reasoning"
   }
 }

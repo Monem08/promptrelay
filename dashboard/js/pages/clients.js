@@ -30,54 +30,114 @@ function clientCard(cl, ctx) {
     ]),
     cl.error ? h('div.mt-8', { style: 'font-size:var(--fs-sm);color:var(--red)' }, [cl.error]) : null,
     h('div.row.wrap.gap-8.mt-16', {}, [
-      btn('Configure', { sm: true, icon: 'gear', onClick: () => showConfigure(cl) }),
+      btn('Configure', { sm: true, icon: 'gear', onClick: () => showConfigure(cl, ctx) }),
       btn('Test', { sm: true, icon: 'check', onClick: () => testClient(cl, ctx) }),
-      btn('Repair', { sm: true, icon: 'wand', onClick: () => showRepair(cl) }),
+      btn('Repair', { sm: true, icon: 'wand', onClick: () => showRepair(cl, ctx) }),
+      cl.configured ? btn('Disconnect', { sm: true, variant: 'ghost', icon: 'trash', onClick: () => confirmRemove(cl, ctx) }) : null,
     ]),
   ]);
 }
 
 function unknown() { return h('span.muted-3', { title: 'No data / not reported' }, ['Unknown']); }
 
-function showConfigure(cl) {
+function showConfigure(cl, ctx) {
   const cmd = `promptrelay setup ${cl.id}`;
   dialog({
     title: `Configure ${cl.label}`, icon: 'gear',
     body: h('div', {}, [
-      h('p.muted', {}, ['Wiring a coding client edits that client\u2019s own config file. For safety, PromptRelay performs this from the CLI so you can review the change and keep a backup:']),
+      h('p.muted', {}, [`Wire ${cl.label} to PromptRelay with automatic configuration, comment preservation, and backup safety:`]),
       h('div.editor.mt-12', {}, [
         h('div.editor-bar', {}, [h('span.muted', {}, ['Terminal']), h('div', { style: 'flex:1' }), btn('Copy', { sm: true, variant: 'ghost', icon: 'copy', onClick: () => copyText(cmd) })]),
         h('pre.mono', { style: 'padding:14px 16px;margin:0;color:var(--text-1)' }, [cmd]),
       ]),
-      h('p.muted.mt-12', { style: 'font-size:var(--fs-sm)' }, [`This points ${cl.label} at ${cl.endpoint} and backs up the previous config.`]),
+      h('p.muted.mt-12', { style: 'font-size:var(--fs-sm)' }, [`Target endpoint: ${cl.endpoint}`]),
     ]),
-    footer: btn('Close', { onClick: () => closeOverlay() }),
+    footer: h('div.row.gap-8', {}, [
+      btn('Close', { onClick: () => closeOverlay() }),
+      btn('Configure Now ⚡', {
+        variant: 'primary', icon: 'gear',
+        onClick: async () => {
+          closeOverlay();
+          toast(`Configuring ${cl.label}…`);
+          try {
+            await api.configureClient(cl.id, {});
+            toast(`${cl.label} configured successfully!`, { type: 'success' });
+            ctx.navigate('clients', true);
+          } catch (err) {
+            toast(`Failed to configure ${cl.label}`, { type: 'error', message: err.message });
+          }
+        },
+      }),
+    ]),
   });
 }
 
-function showRepair(cl) {
+function showRepair(cl, ctx) {
   const cmd = `promptrelay repair ${cl.id}`;
   dialog({
     title: `Repair ${cl.label}`, icon: 'wand',
     body: h('div', {}, [
-      h('p.muted', {}, ['Repair restores the PromptRelay wiring if the client config drifted. The exact change is shown before it is applied by the CLI:']),
+      h('p.muted', {}, [`Repair restores PromptRelay wiring for ${cl.label} while preserving your existing config and creating an atomic backup:`]),
       h('div.editor.mt-12', {}, [
         h('div.editor-bar', {}, [h('span.muted', {}, ['Terminal']), h('div', { style: 'flex:1' }), btn('Copy', { sm: true, variant: 'ghost', icon: 'copy', onClick: () => copyText(cmd) })]),
         h('pre.mono', { style: 'padding:14px 16px;margin:0;color:var(--text-1)' }, [cmd]),
       ]),
     ]),
-    footer: btn('Close', { onClick: () => closeOverlay() }),
+    footer: h('div.row.gap-8', {}, [
+      btn('Close', { onClick: () => closeOverlay() }),
+      btn('Repair Now 🪄', {
+        variant: 'primary', icon: 'wand',
+        onClick: async () => {
+          closeOverlay();
+          toast(`Repairing ${cl.label}…`);
+          try {
+            await api.configureClient(cl.id, {});
+            toast(`${cl.label} repaired successfully!`, { type: 'success' });
+            ctx.navigate('clients', true);
+          } catch (err) {
+            toast(`Failed to repair ${cl.label}`, { type: 'error', message: err.message });
+          }
+        },
+      }),
+    ]),
+  });
+}
+
+function confirmRemove(cl, ctx) {
+  dialog({
+    title: `Disconnect ${cl.label}?`, icon: 'trash',
+    body: h('p.muted', {}, [`Remove PromptRelay wiring from ${cl.label}? Existing settings will be restored from backup.`]),
+    footer: h('div.row.gap-8', {}, [
+      btn('Cancel', { onClick: () => closeOverlay() }),
+      btn('Disconnect', {
+        variant: 'danger', icon: 'trash',
+        onClick: async () => {
+          closeOverlay();
+          try {
+            await api.removeClient(cl.id);
+            toast(`Removed PromptRelay from ${cl.label}`);
+            ctx.navigate('clients', true);
+          } catch (e) {
+            toast('Failed to disconnect', { type: 'error', message: e.message });
+          }
+        },
+      }),
+    ]),
   });
 }
 
 async function testClient(cl, ctx) {
-  toast(`Re-validating ${cl.label}…`);
+  toast(`Testing ${cl.label}…`);
   try {
-    const data = await api.clients();
-    const fresh = (data.clients || []).find((c) => c.id === cl.id);
-    if (fresh && fresh.configured && fresh.valid !== false) toast(`${cl.label} is connected`, { type: 'success' });
-    else if (fresh && fresh.found) toast(`${cl.label} detected but not wired`, { type: 'info', message: 'Use Configure to wire it to PromptRelay.' });
-    else toast(`${cl.label} not detected`, { type: 'error', message: fresh?.error || 'Client not found on this machine.' });
+    const res = await api.testClient(cl.id);
+    const s = res.status || {};
+    if (s.found && s.configured && s.valid !== false) {
+      toast(`${cl.label} is connected and ready`, { type: 'success' });
+    } else if (s.found && !s.configured) {
+      toast(`${cl.label} detected but not wired`, { type: 'info', message: 'Click Configure to connect it to PromptRelay.' });
+    } else {
+      toast(`${cl.label} status: ${s.error || 'Not detected'}`, { type: 'error' });
+    }
     ctx.navigate('clients', true);
   } catch (e) {
     toast('Test failed', { type: 'error', message: e.message });

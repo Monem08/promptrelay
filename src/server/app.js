@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const { loadConfig, validateConfig, safeConfig, collectSecrets } = require('../config');
 const { ensurePromptFile, loadPrompt, promptConfigured } = require('../prompts');
@@ -8,8 +9,83 @@ const { handleMessages } = require('./messages');
 const { registerDashboard } = require('./dashboard');
 const requestLog = require('../telemetry/requests');
 const logger = require('../telemetry/logger');
+const routing = require('../routing/engine');
 
 const VERSION = require('../../package.json').version;
+
+function timingSafeEqualStr(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function gatewayAuthMiddleware(req, res, next) {
+  let config;
+  try {
+    config = loadConfig();
+  } catch {
+    return next();
+  }
+
+  const enabled = Boolean(
+    config.security?.gatewayAuth?.enabled ||
+    config.server?.apiKey ||
+    process.env.PROMPTRELAY_GATEWAY_KEY
+  );
+
+  if (!enabled) {
+    return next();
+  }
+
+  const expectedToken = String(
+    process.env.PROMPTRELAY_GATEWAY_KEY ||
+    config.security?.gatewayAuth?.token ||
+    config.server?.apiKey ||
+    ''
+  ).trim();
+
+  if (!expectedToken) {
+    return res.status(500).json({
+      error: {
+        message: 'Gateway authentication is enabled but no token is configured.',
+        type: 'gateway_auth_configuration_error',
+      },
+    });
+  }
+
+  let providedToken = '';
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    providedToken = authHeader.slice(7).trim();
+  } else if (req.headers['x-api-key']) {
+    providedToken = String(req.headers['x-api-key']).trim();
+  }
+
+  if (!providedToken) {
+    return res.status(401).json({
+      error: {
+        message: 'Missing API key. Provide Authorization: Bearer <key> or x-api-key header.',
+        type: 'missing_api_key',
+      },
+    });
+  }
+
+  if (!timingSafeEqualStr(providedToken, expectedToken)) {
+    return res.status(401).json({
+      error: {
+        message: 'Invalid API key.',
+        type: 'invalid_api_key',
+      },
+    });
+  }
+
+  return next();
+}
 
 /**
  * Create the PromptRelay Express app WITHOUT binding a port. This makes the app
@@ -22,7 +98,10 @@ function createApp() {
 
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '100mb' }));
+
+  // Configurable body limit — never use a massive default.
+  const bodyLimit = initialConfig.server?.bodyLimitBytes || (2 * 1024 * 1024);
+  app.use(express.json({ limit: bodyLimit }));
 
   function configOrError(res) {
     let config;
@@ -103,6 +182,9 @@ function createApp() {
     });
   });
 
+  // Gateway authentication for /v1/* endpoints (when enabled)
+  app.use('/v1', gatewayAuthMiddleware);
+
   app.get('/v1/models', async (req, res) => {
     const config = configOrError(res);
     if (!config) return;
@@ -139,29 +221,44 @@ function createApp() {
   app.post('/v1/messages', async (req, res) => {
     const config = configOrError(res);
     if (!config) return;
+
+    // Use routing engine for client detection and telemetry state
+    const clientId = routing.detectClient(req);
+    const { profile } = routing.resolveProfile(clientId, config);
+    const state = routing.createRequestState(config, clientId, profile);
+
     // Record Anthropic-ingress request metadata (off the hot path, no content).
     const startedAt = Date.now();
     let recorded = false;
     const finalize = () => {
       if (recorded) return;
       recorded = true;
+      // Respect logging mode: 'off' records nothing new.
+      if (config.logging?.mode === 'off') return;
       try {
         requestLog.record({
-          client: /claude/i.test(req.headers['user-agent'] || '') ? 'claude-code' : 'unknown',
+          client: state.client,
           ingress: 'anthropic',
-          provider: config.provider.name,
-          model: config.provider.model,
+          provider: state.provider,
+          model: state.model,
+          profile: state.profile,
+          fallback: state.fallback,
+          retries: state.retries || 0,
+          providerAttempts: state.providerAttempts,
           status: res.statusCode,
           stream: Boolean(req.body?.stream),
           totalMs: Date.now() - startedAt,
+          ttftMs: state.ttftMs || 'unknown',
+          tokens: state.tokens || 'unknown',
           reasoning: config.reasoning?.auto ? 'auto' : config.reasoning?.default,
-          error: res.statusCode >= 400 ? `HTTP ${res.statusCode}` : null,
+          error: res.statusCode >= 400 ? `HTTP ${res.statusCode}` : (state.error || null),
+
         });
       } catch {}
     };
     res.on('finish', finalize);
     res.on('close', finalize);
-    return handleMessages(req, res, config);
+    return handleMessages(req, res, config, state);
   });
 
   // Dashboard: read-only APIs + static SPA. Mounted BEFORE the 404 handler and
@@ -181,10 +278,11 @@ function createApp() {
   app.use((error, req, res, next) => {
     logger.error('PromptRelay error:', error?.message || error);
     if (res.headersSent) return next(error);
-    return res.status(500).json({
+    const status = error.status || error.statusCode || 500;
+    return res.status(status).json({
       error: {
         message: error?.message || 'Internal PromptRelay error',
-        type: 'promptrelay_error',
+        type: status === 413 ? 'payload_too_large' : 'promptrelay_error',
       },
     });
   });

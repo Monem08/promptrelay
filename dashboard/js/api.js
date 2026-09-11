@@ -50,6 +50,7 @@ export const api = {
   metrics:       () => request('/metrics', { noCache: true }),
   diagnostics:   (deep) => request(`/diagnostics${deep ? '?deep=1' : ''}`, { noCache: true }),
   settings:      () => request('/settings'),
+  scopedPrompt:  (scope) => request(`/prompts?scope=${encodeURIComponent(scope || 'global')}`, { noCache: true }),
   // mutations
   refreshModels: () => request('/models/refresh', { method: 'POST' }),
   useModel:      (id) => request('/model/use', { method: 'POST', body: { id } }),
@@ -62,6 +63,22 @@ export const api = {
   autopilot:     () => request('/autopilot', { method: 'POST' }),
   clearRequests: () => request('/requests/clear', { method: 'POST' }),
   runDiagnostics: (deep) => request(`/diagnostics${deep ? '?deep=1' : ''}`, { noCache: true }),
+  // clients
+  configureClient: (id, payload) => request(`/clients/${encodeURIComponent(id)}/configure`, { method: 'POST', body: payload }),
+  removeClient:    (id) => request(`/clients/${encodeURIComponent(id)}/remove`, { method: 'POST' }),
+  testClient:      (id) => request(`/clients/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+  // service
+  serviceStatus:   () => request('/service', { noCache: true }),
+  installService:  () => request('/service/install', { method: 'POST' }),
+  uninstallService:() => request('/service/uninstall', { method: 'POST' }),
+  startService:    () => request('/service/start', { method: 'POST' }),
+  stopService:     () => request('/service/stop', { method: 'POST' }),
+  // doctor / repair
+  repairDiagnostics: () => request('/doctor/repair', { method: 'POST' }),
+  // automation
+  automationStatus:  () => request('/automation', { noCache: true }),
+  runAutomation:     (job) => request('/automation/run', { method: 'POST', body: { job } }),
+  toggleAutomation:  (job, enabled) => request('/automation/toggle', { method: 'POST', body: { job, enabled } }),
 };
 
 export function clearCache() { cache.clear(); }

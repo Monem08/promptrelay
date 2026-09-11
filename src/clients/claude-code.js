@@ -45,9 +45,33 @@ function defaultBaseURL(server) {
   return `http://${host}:${port}`;
 }
 
+const { findExecutable, getExecutableVersion } = require('./fsutil');
+const { safeWriteJsonSync } = require('../config/safe-write');
+
 function detect() {
   const file = configPath();
-  return { id: ID, installed: fs.existsSync(file), path: file, found: fs.existsSync(file) };
+  const exe = findExecutable(['claude', 'claude-code']);
+  const version = exe ? getExecutableVersion(exe) : null;
+  const found = fs.existsSync(file);
+  let configured = false;
+  if (found) {
+    try {
+      const cfg = readJsonIfExists(file, {});
+      configured = Boolean(cfg.env?.ANTHROPIC_BASE_URL);
+    } catch {}
+  }
+  return {
+    id: ID,
+    label: LABEL,
+    protocol: PROTOCOL,
+    installed: Boolean(found || exe),
+    found,
+    path: file,
+    configPath: file,
+    configState: found ? (configured ? 'configured' : 'unconfigured') : 'missing',
+    executable: exe || null,
+    version: version || null,
+  };
 }
 
 function redactToken(v) {
@@ -114,22 +138,24 @@ function configure(opts = {}) {
   if (opts.smallModel) env.ANTHROPIC_SMALL_FAST_MODEL = opts.smallModel;
 
   const next = { ...cfg, env };
-  writeJson(file, next);
+  const res = safeWriteJsonSync(file, next);
+  if (!res.ok) {
+    throw new Error(`Failed to write Claude Code config: ${res.error}`);
+  }
 
-  return { id: ID, path: file, backupPath, created };
+  return { id: ID, path: file, backupPath: res.backupPath || backupPath, created };
 }
 
 function remove(opts = {}) {
   const file = opts.targetPath || configPath();
   if (!fs.existsSync(file)) return { id: ID, path: file, removed: false, note: 'No settings.json found.' };
-  const backupPath = backupFile(file);
   const cfg = readJsonIfExists(file, {});
   if (cfg.env) {
     for (const key of MANAGED_KEYS) delete cfg.env[key];
     if (Object.keys(cfg.env).length === 0) delete cfg.env;
   }
-  writeJson(file, cfg);
-  return { id: ID, path: file, backupPath, removed: true };
+  const res = safeWriteJsonSync(file, cfg);
+  return { id: ID, path: file, backupPath: res.backupPath, removed: true };
 }
 
 module.exports = {

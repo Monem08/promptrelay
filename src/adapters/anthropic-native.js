@@ -61,7 +61,7 @@ async function chat(req, res, config, options = {}) {
   let ir;
   try {
     ir = openaiRequestToIR(req.body || {});
-    applyPromptPolicyIR(ir, config);
+    applyPromptPolicyIR(ir, config, options.clientId);
   } catch (error) {
     return res.status(400).json({ error: { message: error.message, type: 'invalid_request_error' } });
   }

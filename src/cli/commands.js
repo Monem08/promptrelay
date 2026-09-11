@@ -35,67 +35,83 @@ function printHelp() {
 ⚡ PromptRelay CLI
 
 Quick start:
-  promptrelay setup                Interactive setup (provider → key → discovery → model → prompt → OpenCode)
-  promptrelay start                Start the gateway
-  promptrelay doctor               Diagnose your configuration
+  promptrelay setup [--auto] [--dry-run] [--no-start]  Setup wizard (auto/dry-run supported)
+  promptrelay start                                    Start the gateway
+  promptrelay doctor [--deep] [--fix]                  Diagnose and repair your configuration
 
 Lifecycle:
-  promptrelay start [--daemon]     Start (foreground, or background with --daemon)
-  promptrelay stop                 Stop a running gateway
-  promptrelay restart              Restart the gateway
-  promptrelay status               Show running status + live /health
+  promptrelay start [--daemon]                         Start (foreground, or background with --daemon)
+  promptrelay stop                                     Stop a running gateway
+  promptrelay restart                                  Restart the gateway
+  promptrelay status                                   Show running status + live /health
+
+Service (OS Daemon):
+  promptrelay service install                          Install user-level background service
+  promptrelay service start                            Start background service
+  promptrelay service stop                             Stop background service
+  promptrelay service restart                          Restart background service
+  promptrelay service status                           Show background service status
+  promptrelay service uninstall                        Uninstall background service
 
 Providers:
-  promptrelay provider             Interactive provider/model wizard
-  promptrelay provider list        List configured provider profiles
-  promptrelay provider add         Add a provider profile (interactive)
-  promptrelay provider use <name>  Switch the active provider profile
-  promptrelay provider test [--live]  Health-check the active provider
-  promptrelay provider remove <name>  Remove a provider profile
+  promptrelay provider                                 Interactive provider/model wizard
+  promptrelay provider list                            List configured provider profiles
+  promptrelay provider add                             Add a provider profile (interactive)
+  promptrelay provider use <name>                      Switch the active provider profile
+  promptrelay provider test [--live]                   Health-check the active provider
+  promptrelay provider remove <name>                   Remove a provider profile
 
 Models:
-  promptrelay models list [--json] Discover & list provider models
-  promptrelay models free          List verified free models
-  promptrelay models refresh       Refresh the model cache
-  promptrelay models recommend [--profile <p>]  Recommend a model
-  promptrelay model use <id>       Set the active model
+  promptrelay models list [--json]                     Discover & list provider models
+  promptrelay models free                              List verified free models
+  promptrelay models refresh [--clear]                 Refresh (or clear) the model cache
+  promptrelay models recommend [--profile <p>]         Recommend a model
+  promptrelay model use <id>                           Set the active model
 
 Auto & reasoning:
-  promptrelay auto [--profile <p>] Auto-select the best model for a profile
-  promptrelay reasoning list       List reasoning levels
-  promptrelay reasoning set <lvl>  Set default reasoning (none…max, or auto)
+  promptrelay auto [--profile <p>]                     Auto-select the best model for a profile
+  promptrelay reasoning list                           List reasoning levels
+  promptrelay reasoning set <lvl>                      Set default reasoning (none…max, or auto)
 
 Prompt & config:
-  promptrelay prompt               Open your custom system prompt
-  promptrelay prompt use <file>    Load a prompt from a file
-  promptrelay config               Open the config file
-  promptrelay config validate      Validate the config
+  promptrelay prompt                                   Open your custom system prompt
+  promptrelay prompt use <file>                        Load a prompt from a file
+  promptrelay config                                   Open the config file
+  promptrelay config validate                          Validate the config
+  promptrelay config migrate [--dry-run]               Migrate config schema with backups
+  promptrelay config backups                           List timestamped configuration backups
+  promptrelay config restore <id>                      Restore configuration from a backup
 
 OpenCode:
-  promptrelay opencode             Set up OpenCode integration
-  promptrelay opencode status      Show OpenCode integration status
-  promptrelay opencode repair      Re-merge the PromptRelay provider
+  promptrelay opencode                                 Set up OpenCode integration
+  promptrelay opencode status                          Show OpenCode integration status
+  promptrelay opencode repair                          Re-merge the PromptRelay provider
 
 Clients (multi-client integration):
-  promptrelay client list          List supported clients (OpenCode, Claude Code, Hermes)
-  promptrelay client detect        Detect which clients are configured on this machine
-  promptrelay client status [id]   Show PromptRelay wiring status for a client (or all)
-  promptrelay client setup <id>    Wire a client to PromptRelay (--model, --small-model)
-  promptrelay client repair <id>   Re-apply the PromptRelay wiring for a client
-  promptrelay client remove <id>   Remove PromptRelay wiring (restores backup-safe)
+  promptrelay client list                              List supported clients (OpenCode, Claude Code, Hermes)
+  promptrelay client detect                            Detect which clients are installed/configured
+  promptrelay client status [id]                       Show PromptRelay wiring status for a client (or all)
+  promptrelay client setup <id>                        Wire a client to PromptRelay (--model, --small-model)
+  promptrelay client repair <id>                       Re-apply the PromptRelay wiring for a client
+  promptrelay client validate <id>                     Validate client configuration against expected schema
+  promptrelay client remove <id>                       Remove PromptRelay wiring (restores backup-safe)
+
+Compatibility aliases:
+  promptrelay repair <client>                          Alias for promptrelay client repair <client>
+  promptrelay refresh --clear                          Alias for promptrelay models refresh --clear
 
 Keys:
-  promptrelay keys set <ENV> <val> Store a secret in ~/.promptrelay/.env
-  promptrelay keys list            List stored key names (masked)
-  promptrelay keys remove <ENV>    Remove a stored secret
+  promptrelay keys set <ENV> <val>                     Store a secret in ~/.promptrelay/.env
+  promptrelay keys list                                List stored key names (masked)
+  promptrelay keys remove <ENV>                        Remove a stored secret
 
 Other:
-  promptrelay init                 Create config files without overwriting
-  promptrelay dashboard            Open the web dashboard (starts gateway if needed)
-  promptrelay dashboard --print    Print the terminal status dashboard instead
-  promptrelay path                 Print ~/.promptrelay path
-  promptrelay --version            Print version
-  promptrelay --help               Show this help
+  promptrelay init                                     Create config files without overwriting
+  promptrelay dashboard                                Open the web dashboard (starts gateway if needed)
+  promptrelay dashboard --print                        Print the terminal status dashboard instead
+  promptrelay path                                     Print ~/.promptrelay path
+  promptrelay --version                                Print version
+  promptrelay --help                                   Show this help
 `);
 }
 
@@ -255,8 +271,13 @@ async function modelsFree() {
   }
 }
 
-async function modelsRefresh() {
+async function modelsRefresh({ clear = false } = {}) {
   const config = loadUserConfig();
+  if (clear) {
+    const { clearCache } = require('../models/cache');
+    clearCache(config);
+    console.log('✅ Model cache cleared.');
+  }
   const { discoverModels } = require('../models');
   const result = await discoverModels(config, { refresh: true });
   if (result.error) {
@@ -266,6 +287,7 @@ async function modelsRefresh() {
   }
   console.log(`✅ Refreshed ${result.models.length} models (expires ${result.expiresAt}).`);
 }
+
 
 async function modelsRecommend({ profile = 'balanced' } = {}) {
   const config = loadUserConfig();
@@ -562,6 +584,212 @@ function clientRemove(id) {
   console.log('');
 }
 
+async function clientValidate(id, { live = false } = {}) {
+  const { getClient, listClients } = require('../clients/registry');
+  const targetIds = id ? [id] : listClients().map((c) => c.id);
+
+  console.log('');
+  console.log('🧪 Client configuration & validation:');
+
+  for (const clientId of targetIds) {
+    const client = getClient(clientId);
+    if (!client) {
+      console.log(`  ❌ Unknown client "${clientId}"`);
+      continue;
+    }
+    const status = client.status();
+    console.log(`\n  Client: ${client.label} [${client.protocol}]`);
+    console.log(`     Installed   : ${status.found ? '✅ yes' : '— not found'}`);
+    console.log(`     Configured  : ${status.configured ? '✅ yes' : '❌ not configured'}`);
+    console.log(`     Config Path : ${status.path}`);
+    if (status.details) {
+      for (const [k, v] of Object.entries(status.details)) {
+        console.log(`     ${k} = ${v}`);
+      }
+    }
+  }
+  console.log('');
+}
+
+// --- service management -----------------------------------------------------
+
+function serviceStatus() {
+  const service = require('../service/manager');
+  const s = service.status();
+  console.log('');
+  console.log('PromptRelay Background Service:');
+  console.log(`   Platform     : ${s.platform}`);
+  console.log(`   Service Type : ${s.serviceType}`);
+  console.log(`   Installed    : ${s.installed ? '✅ installed' : '❌ not installed'}`);
+  console.log(`   Running      : ${s.running ? '✅ running' : '⏸ not running'}`);
+  if (s.path) console.log(`   Service File : ${s.path}`);
+  if (s.details) console.log(`   Details      : ${s.details}`);
+  console.log('');
+  if (!s.installed) {
+    console.log('To install as background service:  promptrelay service install');
+  } else if (!s.running) {
+    console.log('To start background service:       promptrelay service start');
+  }
+  console.log('');
+}
+
+function serviceInstall() {
+  const service = require('../service/manager');
+  console.log('');
+  try {
+    const res = service.install({ envFile: io.ENV_FILE });
+    console.log('✅ Background service successfully installed.');
+    console.log(`   Type : ${res.serviceType}`);
+    if (res.path) console.log(`   Path : ${res.path}`);
+    console.log('Start it now with:  promptrelay service start');
+  } catch (err) {
+    console.error(`❌ Failed to install service: ${err.message}`);
+    process.exitCode = 1;
+  }
+  console.log('');
+}
+
+function serviceUninstall() {
+  const service = require('../service/manager');
+  console.log('');
+  const res = service.uninstall();
+  if (res.success) {
+    console.log('✅ Background service uninstalled.');
+  } else {
+    console.log(`ℹ️ ${res.note || res.error || 'Failed to uninstall.'}`);
+  }
+  console.log('');
+}
+
+function serviceStart() {
+  const service = require('../service/manager');
+  console.log('');
+  try {
+    service.start();
+    console.log('✅ Background service start command issued.');
+  } catch (err) {
+    console.error(`❌ Failed to start service: ${err.message}`);
+    process.exitCode = 1;
+  }
+  console.log('');
+}
+
+function serviceStop() {
+  const service = require('../service/manager');
+  console.log('');
+  try {
+    service.stop();
+    console.log('✅ Background service stopped.');
+  } catch (err) {
+    console.error(`❌ Failed to stop service: ${err.message}`);
+    process.exitCode = 1;
+  }
+  console.log('');
+}
+
+function serviceRestart() {
+  const service = require('../service/manager');
+  console.log('');
+  try {
+    service.restart();
+    console.log('✅ Background service restarted.');
+  } catch (err) {
+    console.error(`❌ Failed to restart service: ${err.message}`);
+    process.exitCode = 1;
+  }
+  console.log('');
+}
+
+// --- config commands --------------------------------------------------------
+
+function configValidate() {
+  const config = loadUserConfig();
+  const { validateConfig } = require('../config');
+  const problems = validateConfig(config);
+  console.log('');
+  if (problems.length) {
+    console.log(`❌ Configuration has ${problems.length} problem(s):`);
+    for (const p of problems) console.log(`   - ${p}`);
+    process.exitCode = 1;
+  } else {
+    console.log('✅ Configuration is valid.');
+    console.log(`   Config file : ${config.paths.configFile}`);
+    console.log(`   Version     : ${config.version}`);
+  }
+  console.log('');
+}
+
+async function configMigrate({ dryRun = false } = {}) {
+  const { migrateConfigFile } = require('../config/migrate');
+  const file = io.CONFIG_FILE;
+  if (!fs.existsSync(file)) {
+    console.log('No user configuration file found to migrate.');
+    return;
+  }
+  const res = migrateConfigFile(file, { dryRun });
+  console.log('');
+  if (!res.migrated) {
+    console.log(`ℹ️ Configuration is already at the latest schema version (v${res.toVersion}).`);
+  } else if (res.dryRun) {
+    console.log(`🔍 Dry-run migration: would upgrade from v${res.fromVersion} to v${res.toVersion}.`);
+    console.log('   Zero filesystem mutations performed.');
+  } else {
+    console.log(`✅ Successfully migrated config from v${res.fromVersion} to v${res.toVersion}.`);
+    if (res.backupPath) console.log(`   Backup saved to : ${res.backupPath}`);
+  }
+  console.log('');
+}
+
+function configBackups() {
+  const { listBackups } = require('../config/safe-write');
+  const backups = listBackups(io.CONFIG_FILE);
+  console.log('');
+  console.log(`Configuration backups for ${io.CONFIG_FILE}:`);
+  if (!backups.length) {
+    console.log('   (No backups found)');
+  } else {
+    backups.forEach((b, i) => {
+      console.log(`   [${i}] ${b.name} (${b.size} bytes, ${b.mtime.toISOString()})`);
+    });
+  }
+  console.log('');
+}
+
+function configRestore(target) {
+  const backups = require('../config/backups');
+  console.log('');
+  if (target === undefined || target === null || target === '') {
+    const res = backups.restoreByIndex(io.CONFIG_FILE, 0);
+    if (!res.restored) {
+      console.error(`❌ Restore failed: ${res.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`✅ Restored most recent backup: ${res.backupName}`);
+    if (res.previousBackup) console.log(`   Pre-restore backup saved to: ${res.previousBackup}`);
+  } else if (/^\d+$/.test(String(target))) {
+    const idx = parseInt(target, 10);
+    const res = backups.restoreByIndex(io.CONFIG_FILE, idx);
+    if (!res.restored) {
+      console.error(`❌ Restore failed: ${res.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`✅ Restored backup #${idx}: ${res.backupName}`);
+    if (res.previousBackup) console.log(`   Pre-restore backup saved to: ${res.previousBackup}`);
+  } else {
+    const res = backups.restoreByPath(target, io.CONFIG_FILE);
+    if (!res.restored) {
+      console.error(`❌ Restore failed: ${res.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`✅ Restored backup file: ${target}`);
+  }
+  console.log('');
+}
+
+
 // --- keys -------------------------------------------------------------------
 
 function keysSet(name, value) {
@@ -628,12 +856,25 @@ async function doctor({ deep = false, fix = false } = {}) {
   io.ensureHome();
   process.env.PROMPTRELAY_CONFIG = process.env.PROMPTRELAY_CONFIG || io.CONFIG_FILE;
 
+  const doctorEngine = require('../doctor');
   const { loadConfig, validateConfig } = require('../config');
   const { promptConfigured } = require('../prompts');
-  const { normalizeProviderURL, hasVersionSegment } = require('../providers/urls');
+  const { normalizeProviderURL } = require('../providers/urls');
 
   console.log('');
   console.log('🩺 PromptRelay doctor');
+
+  if (fix) {
+    console.log('🔧 Running automated repair…');
+    const repairResult = await doctorEngine.repair({ deep });
+    if (repairResult.repaired.length) {
+      console.log('\n  Repairs applied:');
+      for (const r of repairResult.repaired) console.log(`   ✅ ${r}`);
+    } else {
+      console.log('  No automated repairs were needed.');
+    }
+    console.log('');
+  }
 
   const node = checkNodeVersion();
   console.log(`   Node        : ${node.ok ? '✅' : '❌'} ${node.version}${node.ok ? '' : ' (requires >= 18)'}`);
@@ -661,6 +902,14 @@ async function doctor({ deep = false, fix = false } = {}) {
   console.log(`   Prompt      : ${promptOk ? '✅ configured' : '❌ not configured'}`);
   console.log(`   API key     : ${keyConfigured ? '✅ configured' : `❌ missing (${config.provider.apiKeyEnv})`}`);
   console.log(`   Config      : ${config.paths.configFile}`);
+
+  // Client statuses
+  const clientStatuses = doctorEngine.checkClients();
+  console.log('   Clients     :');
+  for (const c of clientStatuses.clients) {
+    const statusIcon = c.found ? (c.configured ? '✅ configured' : '⚠️ installed but not configured') : '— not found';
+    console.log(`     - ${c.label.padEnd(12)}: ${statusIcon}`);
+  }
 
   // URL sanity: detect /v1 duplication.
   const normalized = normalizeProviderURL(config.provider.baseURL);
@@ -690,7 +939,7 @@ async function doctor({ deep = false, fix = false } = {}) {
 
   const ok = !problems.length && promptOk && keyConfigured && node.ok;
   console.log('');
-  console.log(ok ? '✅ Ready to run.' : '⚠️ Run `promptrelay setup` to fix the setup interactively.');
+  console.log(ok ? '✅ Ready to run.' : '⚠️ Run `promptrelay doctor --fix` or `promptrelay setup` to repair issues.');
   console.log('');
   process.exitCode = ok ? 0 : 1;
 }
@@ -937,10 +1186,20 @@ module.exports = {
   clientStatus,
   clientSetup,
   clientRemove,
+  clientValidate,
+  serviceStatus,
+  serviceInstall,
+  serviceUninstall,
+  serviceStart,
+  serviceStop,
+  serviceRestart,
   keysSet,
   keysList,
   keysRemove,
   configValidate,
+  configMigrate,
+  configBackups,
+  configRestore,
   doctor,
   startServer,
   stopServer,
@@ -949,3 +1208,4 @@ module.exports = {
   dashboard,
   dashboardPrint,
 };
+

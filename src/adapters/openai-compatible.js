@@ -46,7 +46,7 @@ async function chat(req, res, config, options = {}) {
   let upstreamBody = {
     ...incoming,
     model: resolveModel(incoming.model, config),
-    messages: applyPromptPolicy(incoming.messages, config),
+    messages: applyPromptPolicy(incoming.messages, config, options.clientId),
   };
 
   upstreamBody = applyOpenAIReasoning(upstreamBody, config);
@@ -82,15 +82,33 @@ async function chat(req, res, config, options = {}) {
         signal: controller.signal,
       },
       config.retry,
-      { onRetry: (info) => logger.warn(`↻ retry chat (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error) },
+      {
+        onRetry: (info) => {
+          if (options.state) options.state.retries = (options.state.retries || 0) + 1;
+          logger.warn(`↻ retry chat (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error);
+        },
+      },
     );
+
 
     if (config.logging.requests) {
       logger.log(`Connected   : ${Date.now() - startedAt}ms`);
     }
 
+    const { isRetryableStatus } = require('./retry');
+    if (!upstream.ok && isRetryableStatus(upstream.status, config.retry?.retryableStatus) && typeof options.tryNext === 'function' && !res.headersSent) {
+      logger.warn(`⚠ provider "${config.provider.name}" returned exhausted retryable status ${upstream.status}. Trying fallback…`);
+      const handled = await options.tryNext({
+        error: `Provider returned status ${upstream.status}`,
+        status: upstream.status,
+        provider: config.provider.name,
+      });
+      if (handled) return;
+    }
+
     res.status(upstream.status);
     setUpstreamContentType(res, upstream);
+
 
     if (incoming.stream === true) {
       res.setHeader('Cache-Control', 'no-cache, no-transform');

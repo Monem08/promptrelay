@@ -1,0 +1,63 @@
+name: Release
+# Guarded npm release workflow.
+# Triggered ONLY on intentional tag pushes (v*). Cannot run on PRs.
+# Uses OIDC Trusted Publishing with provenance and validates tag against package.json.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies cleanly
+        run: npm ci
+
+      - name: Validate tag matches package.json version
+        run: |
+          node -e '
+            const pkg = require("./package.json");
+            const tag = process.env.GITHUB_REF_NAME;
+            const expected = "v" + pkg.version;
+            if (tag !== expected) {
+              console.error(`Tag "${tag}" does not match package version "${expected}"`);
+              process.exit(1);
+            }
+            console.log(`Validated tag ${tag} matches package.json version ${pkg.version}`);
+          '
+
+      - name: Run code quality checks
+        run: npm run check
+
+      - name: Run test suite
+        run: node --test
+
+      - name: Run npm test
+        run: npm test
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
+      - name: Dry-run package packaging
+        run: npm pack --dry-run
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

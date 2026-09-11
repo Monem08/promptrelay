@@ -15,7 +15,14 @@ export async function render(page, ctx) {
   try { data = await api.prompts(); } catch (e) { page.removeChild(loading); page.appendChild(h('div.card', {}, [`Could not load prompt: ${e.message}`])); return; }
   page.removeChild(loading);
 
-  const stateP = { content: data.content || '', mode: data.mode, saved: true, saving: false };
+  const stateP = {
+    content: data.content || '',
+    mode: data.mode,
+    scope: data.scope || 'global',
+    file: data.file,
+    saved: true,
+    saving: false,
+  };
   let saveTimer = null;
 
   // ---- editor bar ----
@@ -46,8 +53,12 @@ export async function render(page, ctx) {
     if (stateP.saving) return;
     stateP.saving = true; saveText.textContent = 'Saving…';
     try {
-      const r = await api.savePrompt({ content: ta.value, mode: stateP.mode });
+      const r = await api.savePrompt({ content: ta.value, mode: stateP.mode, scope: stateP.scope });
       stateP.saved = true; saveDot.classList.add('saved'); saveText.textContent = 'Saved';
+      if (r.file) {
+        stateP.file = r.file;
+        filePathEl.textContent = r.file;
+      }
       configuredBadge(r.configured);
     } catch (e) {
       saveText.textContent = 'Save failed'; toast('Could not save prompt', { type: 'error', message: e.message });
@@ -97,9 +108,33 @@ export async function render(page, ctx) {
   };
   presetSel.addEventListener('change', applyPreset);
 
-  // ---- scopes (informational + effective preview) ----
+  // ---- scopes (interactive per-client prompts) ----
   const scopeSel = h('select.select', { style: 'max-width:200px' },
-    (data.scopes || ['global']).map((s) => h('option', { value: s }, [s === 'global' ? 'Global (all clients)' : s])));
+    (data.scopes || ['global']).map((s) => h('option', { value: s, selected: s === stateP.scope }, [s === 'global' ? 'Global (all clients)' : s])));
+
+  const filePathEl = h('span.mono', {}, [data.file || 'prompt.txt']);
+
+  scopeSel.addEventListener('change', async (e) => {
+    const scope = e.target.value;
+    stateP.scope = scope;
+    toast(`Loading prompt for ${scope === 'global' ? 'Global' : scope}…`);
+    try {
+      const scoped = await api.scopedPrompt(scope);
+      ta.value = scoped.content || '';
+      stateP.mode = scoped.mode || 'replace';
+      modeSel.value = stateP.mode;
+      stateP.file = scoped.file;
+      filePathEl.textContent = scoped.file || '';
+      stateP.saved = true;
+      saveDot.classList.add('saved');
+      saveText.textContent = 'Saved';
+      configuredBadge(scoped.configured);
+      updateCounts();
+      renderReplaceWarn();
+    } catch (err) {
+      toast('Failed to load scoped prompt', { type: 'error', message: err.message });
+    }
+  });
 
   const cfgBadge = h('span');
   function configuredBadge(v) { while (cfgBadge.firstChild) cfgBadge.removeChild(cfgBadge.firstChild); cfgBadge.appendChild(v ? badge('Custom prompt configured', 'green') : badge('Placeholder prompt', 'amber')); }
@@ -125,7 +160,7 @@ export async function render(page, ctx) {
     btn('Save now', { variant: 'primary', icon: 'check', onClick: doSave }),
     btn('Effective Preview', { icon: 'external', onClick: () => showPreview() }),
     h('div', { style: 'flex:1' }),
-    h('span.muted-3', { style: 'font-size:var(--fs-xs)' }, [`File: `, h('span.mono', {}, [data.file || 'prompt.txt'])]),
+    h('span.muted-3', { style: 'font-size:var(--fs-xs)' }, [`File: `, filePathEl]),
   ]));
 
   function showPreview() {

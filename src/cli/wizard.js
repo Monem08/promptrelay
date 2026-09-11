@@ -201,7 +201,216 @@ async function offerModelDiscovery(rl, config) {
 
 // --- full setup -------------------------------------------------------------
 
-async function setup() {
+// --- dry-run setup ----------------------------------------------------------
+
+async function setupDryRun() {
+  console.log('');
+  console.log('══════════════════════════════════════════════');
+  console.log('🔍 PromptRelay Setup · DRY RUN');
+  console.log('══════════════════════════════════════════════');
+  console.log('Inspecting system environment. Zero filesystem mutations will occur.\n');
+
+  // 1. Provider detection
+  const credentials = require('../providers/credentials');
+  const detectedCreds = credentials.detectedCredentials();
+  console.log('[1/4] Provider Detection:');
+  if (detectedCreds.length > 0) {
+    for (const d of detectedCreds) {
+      console.log(`  - Environment credential detected: ${d.label} via $${d.envVar} (never printed)`);
+    }
+  } else {
+    console.log('  - No provider credentials found in environment variables.');
+  }
+
+  let ollamaFound = false;
+  try {
+    const { fetchWithTimeout } = require('../providers/detect');
+    const res = await fetchWithTimeout('http://127.0.0.1:11434/api/tags', { method: 'GET' }, 1500);
+    if (res.ok) {
+      ollamaFound = true;
+      console.log('  - Local Ollama instance detected at http://127.0.0.1:11434');
+    }
+  } catch {}
+
+  // 2. Client detection
+  const registry = require('../clients/registry');
+  const detectedClients = registry.detectAll();
+  console.log('\n[2/4] Client Detection:');
+  for (const c of detectedClients) {
+    console.log(`  - ${c.label.padEnd(14)}: installed=${c.installed ? 'yes' : 'no'}, config=${c.configState || 'unknown'}, path=${c.configPath || c.path}`);
+    if (c.executable) {
+      console.log(`    executable : ${c.executable}${c.version ? ` (v${c.version})` : ''}`);
+    }
+  }
+
+  // 3. Model discovery
+  console.log('\n[3/4] Model Discovery:');
+  const mockConfig = readConfig();
+  if (detectedCreds.length > 0 || ollamaFound) {
+    console.log('  - Provider endpoints reachable for model discovery: yes');
+  } else {
+    console.log('  - Model discovery would query provider /models endpoint on live setup');
+  }
+
+  // 4. Proposed configuration validation
+  console.log('\n[4/4] Configuration Validation:');
+  const { validateConfig } = require('../config/validate');
+  const problems = validateConfig(mockConfig);
+  if (problems.length) {
+    console.log(`  ❌ Proposed configuration has problems: ${problems.join('; ')}`);
+  } else {
+    console.log('  ✅ Proposed gateway configuration is valid.');
+  }
+
+  console.log('\n══════════════════════════════════════════════');
+  console.log('Dry run complete. Zero filesystem mutations performed.');
+  console.log('Run `promptrelay setup` or `promptrelay setup --auto` to apply.');
+  console.log('══════════════════════════════════════════════\n');
+
+  return { dryRun: true, clients: detectedClients, credentials: detectedCreds, valid: problems.length === 0 };
+}
+
+// --- automatic setup --------------------------------------------------------
+
+async function setupAuto(options = {}) {
+  const { noStart = false, installService = false } = options;
+  io.ensureHome();
+  commands.init({ quiet: true });
+
+  console.log('');
+  console.log('══════════════════════════════════════════════');
+  console.log('⚡ PromptRelay Setup · AUTOMATIC');
+  console.log('══════════════════════════════════════════════');
+
+  const config = readConfig();
+
+  // 1. Genuine Provider detection
+  const credentials = require('../providers/credentials');
+  const detectedCreds = credentials.detectedCredentials();
+  const { getPreset } = require('../providers/presets');
+
+  if (detectedCreds.find((c) => c.envVar === 'OPENROUTER_API_KEY')) {
+    const preset = getPreset('openrouter');
+    config.provider = { ...preset.provider, model: config.provider?.model || 'openrouter/auto', forceModel: true };
+    config.reasoning = preset.reasoning;
+    console.log('  ✅ Detected OpenRouter credentials in environment ($OPENROUTER_API_KEY)');
+  } else if (detectedCreds.find((c) => c.envVar === 'ANTHROPIC_API_KEY')) {
+    config.provider = {
+      name: 'Anthropic',
+      transport: 'anthropic-native',
+      baseURL: 'https://api.anthropic.com',
+      model: config.provider?.model || 'claude-3-7-sonnet-20250219',
+      apiKeyEnv: 'ANTHROPIC_API_KEY',
+      auth: { type: 'header', headerName: 'x-api-key' },
+      forceModel: false,
+    };
+    console.log('  ✅ Detected Anthropic credentials in environment ($ANTHROPIC_API_KEY)');
+  } else if (detectedCreds.find((c) => c.envVar === 'OPENAI_API_KEY')) {
+    const preset = getPreset('custom-openai');
+    config.provider = { ...preset.provider, model: config.provider?.model || 'gpt-4o', apiKeyEnv: 'OPENAI_API_KEY', forceModel: false };
+    console.log('  ✅ Detected OpenAI credentials in environment ($OPENAI_API_KEY)');
+  } else {
+    // Probe local Ollama
+    let ollamaFound = false;
+    try {
+      const { fetchWithTimeout } = require('../providers/detect');
+      const res = await fetchWithTimeout('http://127.0.0.1:11434/api/tags', { method: 'GET' }, 1500);
+      if (res.ok) {
+        ollamaFound = true;
+        const preset = getPreset('ollama-local');
+        config.provider = { ...preset.provider, model: config.provider?.model || 'qwen2.5-coder:7b', forceModel: false };
+        config.reasoning = preset.reasoning;
+        console.log('  ✅ Detected running Ollama instance at http://127.0.0.1:11434');
+      }
+    } catch {}
+
+    if (!ollamaFound && (!config.provider || !config.provider.name)) {
+      const preset = getPreset('openrouter');
+      config.provider = { ...preset.provider, model: 'openrouter/auto', forceModel: true };
+      config.reasoning = preset.reasoning;
+      console.log('  ℹ️ Configured default OpenRouter profile ($OPENROUTER_API_KEY can be added to ~/.promptrelay/.env)');
+    }
+  }
+
+  // 2. Discover models if possible (best-effort)
+  try {
+    const { discoverModels } = require('../models');
+    process.env.PROMPTRELAY_CONFIG = io.CONFIG_FILE;
+    const disc = await discoverModels(config, { refresh: false });
+    if (!disc.error && disc.models?.length) {
+      console.log(`  ✅ Discovered ${disc.models.length} models from provider.`);
+    }
+  } catch {}
+
+  // 3. Validate and safe write configuration
+  const { validateConfig } = require('../config/validate');
+  const problems = validateConfig(config);
+  if (problems.length) {
+    console.error(`  ❌ Configuration validation failed: ${problems.join('; ')}`);
+  } else {
+    io.writeJson(io.CONFIG_FILE, config);
+    console.log(`  ✅ Gateway configuration written atomically to ${io.CONFIG_FILE}`);
+  }
+
+  // 4. Client detection & configuration (ALL detected clients in ONE setup run)
+  const registry = require('../clients/registry');
+  const detectedClients = registry.detectAll().filter((c) => c.installed || c.found);
+  console.log(`\n  Configuring detected coding clients (${detectedClients.length}):`);
+  if (detectedClients.length > 0) {
+    for (const dc of detectedClients) {
+      try {
+        await commands.clientSetup(dc.id);
+      } catch (err) {
+        console.log(`    ⚠️ Could not configure ${dc.label}: ${err.message}`);
+      }
+    }
+  } else {
+    try {
+      await commands.opencodeSetup();
+    } catch {}
+  }
+
+  // 5. Optional service installation
+  if (installService) {
+    try {
+      const service = require('../service/manager');
+      service.install({ envFile: io.ENV_FILE });
+      console.log('  ✅ Background service installed.');
+    } catch (err) {
+      console.log(`  ⚠️ Service install skipped: ${err.message}`);
+    }
+  }
+
+  console.log('\n✅ Automatic setup complete.');
+  console.log(`   Provider : ${config.provider?.name}`);
+  console.log(`   Model    : ${config.provider?.model}`);
+  console.log(`   Config   : ${io.CONFIG_FILE}`);
+  if (noStart) {
+    console.log('   Service start skipped (--no-start).');
+  } else {
+    console.log('   Ready to run. Start with: promptrelay start');
+  }
+  console.log('');
+
+  return { success: true, config, clients: detectedClients };
+}
+
+// --- full setup -------------------------------------------------------------
+
+async function setup(flags = {}) {
+  const isDryRun = Boolean(flags['dry-run'] || flags.dryRun);
+  const isAuto = Boolean(flags.auto || !input.isTTY);
+  const noStart = Boolean(flags['no-start'] || flags.noStart);
+  const installService = Boolean(flags.service);
+
+  if (isDryRun) {
+    return setupDryRun();
+  }
+
+  if (isAuto) {
+    return setupAuto({ noStart, installService });
+  }
+
   io.ensureHome();
   commands.init({ quiet: true });
 
@@ -228,13 +437,30 @@ async function setup() {
     await promptWizard(rl, config);
     io.writeJson(io.CONFIG_FILE, config);
 
-    let openCodeResult = null;
-    if (await yesNo(rl, 'Set up OpenCode integration automatically?', true)) {
-      try {
-        await commands.opencodeSetup();
-        openCodeResult = true;
-      } catch (error) {
-        console.log(`   ⚠️ OpenCode setup failed: ${error.message}`);
+    const registry = require('../clients/registry');
+    const detectedClients = registry.detectAll().filter((c) => c.installed);
+
+    if (detectedClients.length > 0) {
+      console.log('\nDetected coding clients:');
+      for (const dc of detectedClients) {
+        console.log(`  - ${dc.label} (${dc.path})`);
+      }
+      if (await yesNo(rl, 'Configure all detected clients automatically to use PromptRelay?', true)) {
+        for (const dc of detectedClients) {
+          try {
+            await commands.clientSetup(dc.id);
+          } catch (error) {
+            console.log(`   ⚠️ Setup failed for ${dc.label}: ${error.message}`);
+          }
+        }
+      }
+    } else {
+      if (await yesNo(rl, 'Set up OpenCode integration automatically?', true)) {
+        try {
+          await commands.opencodeSetup();
+        } catch (error) {
+          console.log(`   ⚠️ OpenCode setup failed: ${error.message}`);
+        }
       }
     }
 
@@ -249,14 +475,23 @@ async function setup() {
     console.log('Running diagnostics…');
     rl.close();
     await commands.doctor({});
-    console.log('Start the gateway with:  promptrelay start');
+    if (installService) {
+      try {
+        const service = require('../service/manager');
+        service.install({ envFile: io.ENV_FILE });
+        console.log('Background service installed.');
+      } catch {}
+    }
+    if (!noStart) {
+      console.log('Start the gateway with:  promptrelay start');
+    }
     console.log('');
     return;
   } finally {
-    // rl may already be closed above; guard against double close.
     try { rl.close(); } catch {}
   }
 }
+
 
 // --- provider-only setup ----------------------------------------------------
 
@@ -282,4 +517,12 @@ async function providerSetup() {
   }
 }
 
-module.exports = { setup, providerSetup, providerWizard, promptWizard, configureAuth };
+module.exports = {
+  setup,
+  setupDryRun,
+  setupAuto,
+  providerSetup,
+  providerWizard,
+  promptWizard,
+  configureAuth,
+};

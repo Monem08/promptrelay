@@ -130,18 +130,39 @@ export async function render(page, ctx) {
     dialog({
       title: 'Repair safe issues', icon: 'wand',
       body: h('div', {}, [
-        h('p.muted.mb-12', { style: 'font-size:var(--fs-sm)' }, ['PromptRelay applies fixes through its CLI so changes are explicit and auditable. Review the suggested actions, then run them from a terminal or use Autopilot for safe, read-only refreshes.']),
+        h('p.muted.mb-12', { style: 'font-size:var(--fs-sm)' }, ['PromptRelay can automatically resolve detected issues (migrating schemas, restoring corrupt files from backup, ensuring prompt files, connecting keys, and configuring clients):']),
         problems.length
           ? h('ul', { style: 'margin:0 0 12px 18px;color:var(--text-2);font-size:var(--fs-sm)' }, problems.map((p) => h('li', { style: 'margin-bottom:4px' }, [String(p)])))
-          : h('p.muted', { style: 'font-size:var(--fs-sm)' }, ['No issues detected in the last run — nothing to repair.']),
-        h('div.section-title', {}, ['Suggested commands']),
+          : h('p.muted', { style: 'font-size:var(--fs-sm)' }, ['No issues detected in the last run — system is healthy.']),
+        h('div.section-title', {}, ['CLI alternative']),
         h('pre.mono', { style: 'white-space:pre-wrap;background:var(--bg-sunken);padding:12px;border-radius:var(--r-md);font-size:var(--fs-xs)' }, [
           'promptrelay doctor --fix     # apply safe automated fixes\npromptrelay refresh          # refresh model metadata cache\npromptrelay setup            # re-run guided configuration',
         ]),
       ]),
       footer: h('div.row.gap-8', {}, [
         btn('Close', { onClick: () => closeOverlay() }),
-        btn('Run Autopilot instead', { variant: 'primary', icon: 'zap', onClick: () => { closeOverlay(); runAutopilot(); } }),
+        btn('Apply Self-Healing Repairs 🪄', {
+          variant: 'primary', icon: 'wand',
+          onClick: async () => {
+            closeOverlay();
+            toast('Running automated self-healing repairs…');
+            try {
+              const res = await api.repairDiagnostics();
+              const repairedCount = res.repaired?.length || 0;
+              if (repairedCount > 0) {
+                toast(`Repaired ${repairedCount} item${repairedCount === 1 ? '' : 's'}!`, {
+                  type: 'success',
+                  message: res.repaired.join('; '),
+                });
+              } else {
+                toast('System verified, no repairs needed', { type: 'success' });
+              }
+              await runDiag(false);
+            } catch (err) {
+              toast('Repair failed', { type: 'error', message: err.message });
+            }
+          },
+        }),
       ]),
     });
   }

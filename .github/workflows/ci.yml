@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main, master, 'release/**']
   pull_request:
 
 jobs:
@@ -15,6 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - run: npm install
+      - run: npm ci
       - run: npm run check
+      - run: node --test
       - run: npm test
+      - run: npm audit --omit=dev
+      - run: npm pack --dry-run

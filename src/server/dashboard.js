@@ -35,10 +35,14 @@ const models = require('../models');
 const requestLog = require('../telemetry/requests');
 const { maskSecret } = require('../telemetry/secrets');
 
+const { safeWriteJsonSync } = require('../config/safe-write');
+
 const DASHBOARD_DIR = path.resolve(__dirname, '..', '..', 'dashboard');
 const START_TIME = Date.now();
 
-const ALLOW_REMOTE = String(process.env.PROMPTRELAY_DASHBOARD_ALLOW_REMOTE || '').toLowerCase() === 'true';
+function isRemoteAllowed() {
+  return String(process.env.PROMPTRELAY_DASHBOARD_ALLOW_REMOTE || '').toLowerCase() === 'true';
+}
 
 const PROMPT_PRESETS = require('./dashboard-presets');
 
@@ -57,18 +61,146 @@ function isLoopback(ip) {
   );
 }
 
-/** Guard: reject non-loopback callers unless explicitly allowed. */
-function localOnly(req, res, next) {
-  if (ALLOW_REMOTE) return next();
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  if (isLoopback(ip)) return next();
-  return res.status(403).json({
-    error: {
-      message: 'The PromptRelay dashboard is local-only by default. Set PROMPTRELAY_DASHBOARD_ALLOW_REMOTE=true to allow remote access.',
-      type: 'dashboard_local_only',
-    },
-  });
+const crypto = require('crypto');
+
+// Rate limiting for remote authentication failures: max 5 failures per IP within 60s
+const authFailures = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_AUTH_FAILURES = 5;
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = authFailures.get(ip);
+  if (!entry) return true;
+  if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    authFailures.delete(ip);
+    return true;
+  }
+  return entry.count < MAX_AUTH_FAILURES;
 }
+
+function recordAuthFailure(ip) {
+  const now = Date.now();
+  const entry = authFailures.get(ip);
+  if (!entry || (now - entry.windowStart > RATE_LIMIT_WINDOW_MS)) {
+    authFailures.set(ip, { count: 1, windowStart: now });
+  } else {
+    entry.count += 1;
+  }
+}
+
+function timingSafeEqualStr(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/** Comprehensive security guard for dashboard endpoints. */
+function dashboardSecurityGuard(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self';");
+
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  const loopback = isLoopback(ip);
+
+  const isTls = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  if (!loopback && !isTls) {
+    res.setHeader('X-PromptRelay-Security-Warning', 'non-TLS remote connection');
+  }
+
+  // Local loopback is granted without requiring remote credentials
+  if (loopback) {
+    return next();
+  }
+
+  // Remote caller: reject if remote access not enabled
+  if (!isRemoteAllowed()) {
+    return res.status(403).json({
+      error: {
+        message: 'The PromptRelay dashboard is local-only by default. Set PROMPTRELAY_DASHBOARD_ALLOW_REMOTE=true to allow remote access.',
+        type: 'dashboard_local_only',
+      },
+    });
+  }
+
+  let config;
+  try { config = loadConfig(); } catch {}
+  const expectedToken = process.env.PROMPTRELAY_DASHBOARD_TOKEN || config?.security?.dashboardToken;
+
+  // Secure refusal: if remote access is on but no token configured, refuse!
+  if (!expectedToken) {
+    return res.status(403).json({
+      error: {
+        message: 'Remote dashboard access requires a configured dashboard token. Set PROMPTRELAY_DASHBOARD_TOKEN or config.security.dashboardToken.',
+        type: 'missing_dashboard_token_config',
+      },
+    });
+  }
+
+  // Rate limiting
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({
+      error: {
+        message: 'Too many failed authentication attempts. Please try again later.',
+        type: 'rate_limited',
+      },
+    });
+  }
+
+  // Extract token from Authorization: Bearer <token> or x-dashboard-token header
+  let providedToken = '';
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    providedToken = authHeader.slice(7).trim();
+  } else if (req.headers['x-dashboard-token']) {
+    providedToken = String(req.headers['x-dashboard-token']).trim();
+  }
+
+  if (!providedToken) {
+    return res.status(401).json({
+      error: {
+        message: 'Dashboard token is required for remote access. Provide Authorization: Bearer <token> or x-dashboard-token.',
+        type: 'missing_dashboard_token',
+      },
+    });
+  }
+
+  if (!timingSafeEqualStr(providedToken, expectedToken)) {
+    recordAuthFailure(ip);
+    return res.status(401).json({
+      error: {
+        message: 'Invalid dashboard token.',
+        type: 'invalid_dashboard_token',
+      },
+    });
+  }
+
+  // State-changing route protection against CSRF
+  const isStateChanging = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method.toUpperCase());
+  if (isStateChanging && req.headers.origin) {
+    const originHost = req.headers.origin.replace(/^https?:\/\//, '').split('/')[0];
+    const hostHeader = req.headers.host;
+    if (originHost && hostHeader && originHost !== hostHeader) {
+      return res.status(403).json({
+        error: {
+          message: 'Cross-origin state-changing requests are refused for remote dashboard access.',
+          type: 'cross_origin_refusal',
+        },
+      });
+    }
+  }
+
+  next();
+}
+
+const localOnly = dashboardSecurityGuard;
 
 /** Load config, or send a sanitized 500 and return null. */
 function safeLoad(res) {
@@ -93,7 +225,7 @@ function readRawConfig(config) {
 
 function writeRawConfig(config, raw) {
   const file = config.paths.configFile;
-  fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+  safeWriteJsonSync(file, raw, { reason: 'dashboard_update' });
 }
 
 /**
@@ -172,6 +304,10 @@ function registerDashboard(app) {
     const metrics = requestLog.metrics();
     const health = readHealthState(config);
 
+    const uniqueProviders = new Set(providerList.map((p) => p.name));
+    if (config.provider?.name && !config.activeProvider) uniqueProviders.add(config.provider.name);
+    else if (uniqueProviders.size === 0 && config.provider?.name) uniqueProviders.add(config.provider.name);
+
     res.json({
       version: require('../../package.json').version,
       gatewayURL: gatewayURL(config),
@@ -180,7 +316,7 @@ function registerDashboard(app) {
       status: problems.length ? 'error' : 'ok',
       problems,
       uptimeSeconds: Math.round((Date.now() - START_TIME) / 1000),
-      remoteAccessAllowed: ALLOW_REMOTE,
+      remoteAccessAllowed: isRemoteAllowed(),
       boundNonLoopback: !isLoopback(config.server.host) && config.server.host !== 'localhost',
       active: {
         provider: config.provider.name,
@@ -195,11 +331,12 @@ function registerDashboard(app) {
       counts: {
         clients: connectedClients,
         clientsDetected: detectAll().filter((c) => c.installed).length,
-        providers: providerList.length + 1, // registry + inline active
+        providers: uniqueProviders.size || 1,
         models: cache ? modelList.length : 'unknown',
         freeModels: cache ? countFree(modelList) : 'unknown',
         healthyCandidates: cache ? modelList.length : 'unknown',
       },
+
       modelsCache: cache
         ? { source: cache.source, retrievedAt: cache.retrievedAt, expiresAt: cache.expiresAt }
         : null,
@@ -374,19 +511,27 @@ function registerDashboard(app) {
   api.get('/prompts', (req, res) => {
     const config = safeLoad(res);
     if (!config) return;
+    const { loadScopedPrompt, scopeConfigured, modeForScope, listScopes, promptFileForScope } = require('../prompts/scopes');
+    const scope = String(req.query.scope || 'global').trim();
     let content = '';
     try {
-      content = loadPrompt(config);
+      content = loadScopedPrompt(scope, config);
     } catch {}
+    const filePath = promptFileForScope(scope, config);
+    const configured = scopeConfigured(scope, config);
+    const currentMode = modeForScope(scope, config);
+
     res.json({
+      scope,
       content,
-      mode: config.prompt.mode,
-      configured: promptConfigured(config),
+      mode: currentMode,
+      configured,
       characters: content.length,
       tokenEstimate: Math.ceil(content.length / 4),
-      file: config.paths.promptFile,
+      file: filePath,
       modes: ['replace', 'prepend', 'append', 'passthrough'],
       scopes: ['global', ...listClients().map((c) => c.id)],
+      allScopes: listScopes(config),
       presets: PROMPT_PRESETS.map((p) => ({ id: p.id, label: p.label, description: p.description, content: p.content })),
     });
   });
@@ -424,7 +569,7 @@ function registerDashboard(app) {
       logging: config.logging,
       automation: config.automation || {},
       dashboard: {
-        remoteAccessAllowed: ALLOW_REMOTE,
+        remoteAccessAllowed: isRemoteAllowed(),
         boundHost: config.server.host,
         boundNonLoopback: !isLoopback(config.server.host) && config.server.host !== 'localhost',
       },
@@ -536,28 +681,48 @@ function registerDashboard(app) {
     }
   });
 
-  // Save prompt content and/or mode.
+  // Save prompt content and/or mode (with scope support).
   api.post('/prompts', (req, res) => {
     const config = safeLoad(res);
     if (!config) return;
-    const { content, mode } = req.body || {};
+    const { content, mode, scope: rawScope } = req.body || {};
+    const scope = String(rawScope || 'global').trim();
+    const { promptFileForScope, scopeConfigured, modeForScope, loadScopedPrompt } = require('../prompts/scopes');
+    const targetFile = promptFileForScope(scope, config);
+
     if (typeof content === 'string') {
       try {
-        fs.writeFileSync(config.paths.promptFile, content, 'utf8');
+        const { safeWriteSync } = require('../config/safe-write');
+        fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+        safeWriteSync({ filePath: targetFile, content: `${content}\n` });
       } catch (error) {
         return res.status(500).json({ error: { message: `Could not write prompt: ${error.message}`, type: 'write_error' } });
       }
     }
+
     if (mode && ['replace', 'prepend', 'append', 'passthrough'].includes(mode)) {
       const raw = readRawConfig(config);
-      raw.prompt = raw.prompt || {};
-      raw.prompt.mode = mode;
+      if (scope === 'global') {
+        raw.prompt = raw.prompt || {};
+        raw.prompt.mode = mode;
+      } else {
+        raw.promptScopes = raw.promptScopes || {};
+        raw.promptScopes[scope] = { ...(raw.promptScopes[scope] || {}), mode };
+      }
       writeRawConfig(config, raw);
     }
+
     const fresh = loadConfig();
     let saved = '';
-    try { saved = loadPrompt(fresh); } catch {}
-    res.json({ ok: true, characters: saved.length, configured: promptConfigured(fresh), mode: fresh.prompt.mode });
+    try { saved = loadScopedPrompt(scope, fresh); } catch {}
+    res.json({
+      ok: true,
+      scope,
+      characters: saved.length,
+      configured: scopeConfigured(scope, fresh),
+      mode: modeForScope(scope, fresh),
+      file: promptFileForScope(scope, fresh),
+    });
   });
 
   // Router profile / fallback settings.
@@ -598,9 +763,61 @@ function registerDashboard(app) {
     }
     if (body.automation && typeof body.automation === 'object') {
       raw.automation = { ...(raw.automation || {}), ...body.automation };
+      try {
+        const { getAutomationManager } = require('../automation/manager');
+        getAutomationManager().updateConfig(raw);
+      } catch {}
     }
     writeRawConfig(config, raw);
     res.json({ ok: true, note: 'Some changes (host/port) require a gateway restart to take effect.' });
+  });
+
+  // Automation manager: query live background job status
+  api.get('/automation', (req, res) => {
+    try {
+      const { getAutomationManager } = require('../automation/manager');
+      res.json(getAutomationManager().getStatus());
+    } catch (err) {
+      res.status(500).json({ error: { message: err.message, type: 'automation_error' } });
+    }
+  });
+
+  // Automation manager: execute a specific job immediately
+  api.post('/automation/run', async (req, res) => {
+    const job = req.body?.job;
+    if (!job) {
+      return res.status(400).json({ error: { message: 'Missing job parameter', type: 'invalid_request' } });
+    }
+    try {
+      const { getAutomationManager } = require('../automation/manager');
+      const result = await getAutomationManager().runNow(job);
+      res.json({ ok: true, result });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Automation manager: enable or disable a specific job at runtime
+  api.post('/automation/toggle', (req, res) => {
+    const config = safeLoad(res);
+    if (!config) return;
+    const raw = readRawConfig(config);
+    const { job, enabled } = req.body || {};
+    if (!job || typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: { message: 'job and boolean enabled are required', type: 'invalid_request' } });
+    }
+    raw.automation = raw.automation || {};
+    if (typeof raw.automation[job] === 'object' && raw.automation[job] !== null) {
+      raw.automation[job].enabled = enabled;
+    } else {
+      raw.automation[job] = enabled;
+    }
+    writeRawConfig(config, raw);
+    try {
+      const { getAutomationManager } = require('../automation/manager');
+      getAutomationManager().updateConfig(raw);
+    } catch {}
+    res.json({ ok: true, automation: raw.automation });
   });
 
   // Autopilot: a sequence of SAFE steps only. Never runs paid/live tests.
@@ -657,6 +874,140 @@ function registerDashboard(app) {
   api.post('/requests/clear', (req, res) => {
     requestLog.clear();
     res.json({ ok: true });
+  });
+
+  // ---- SSE Live Telemetry Stream ----
+  api.get('/stream', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    res.write(':connected\n\n');
+
+    const onRecord = (record) => {
+      res.write(`event: request\ndata: ${JSON.stringify(record)}\n\n`);
+    };
+
+    requestLog.on('record', onRecord);
+
+    const keepAlive = setInterval(() => {
+      res.write(':keepalive\n\n');
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      requestLog.off('record', onRecord);
+    });
+  });
+
+  // ---- Client Configuration & Repair ----
+  api.post('/clients/:id/configure', async (req, res) => {
+    const config = safeLoad(res);
+    if (!config) return;
+    const registry = require('../clients/registry');
+    const client = registry.getClient(req.params.id);
+    if (!client) return res.status(404).json({ error: { message: `Unknown client "${req.params.id}"`, type: 'not_found' } });
+
+    const baseURL = client.defaultBaseURL(config.server);
+    const chosenModel = req.body?.model || config.provider.model;
+    let modelMeta = null;
+    if (client.id === 'opencode') {
+      try {
+        const { discoverModels } = require('../models');
+        const r = await discoverModels(config, {});
+        if (!r.error) modelMeta = r.models.find((m) => m.id === chosenModel) || null;
+      } catch {}
+    }
+
+    try {
+      const result = client.configure({
+        baseURL,
+        model: chosenModel,
+        smallModel: req.body?.smallModel,
+        modelMeta,
+      });
+      res.json({ ok: true, result, status: client.status() });
+    } catch (err) {
+      res.status(500).json({ error: { message: err.message, type: 'configure_error' } });
+    }
+  });
+
+  api.post('/clients/:id/remove', (req, res) => {
+    const registry = require('../clients/registry');
+    const client = registry.getClient(req.params.id);
+    if (!client) return res.status(404).json({ error: { message: `Unknown client "${req.params.id}"`, type: 'not_found' } });
+
+    try {
+      const result = client.remove();
+      res.json({ ok: true, result, status: client.status() });
+    } catch (err) {
+      res.status(500).json({ error: { message: err.message, type: 'remove_error' } });
+    }
+  });
+
+  api.post('/clients/:id/test', (req, res) => {
+    const registry = require('../clients/registry');
+    const client = registry.getClient(req.params.id);
+    if (!client) return res.status(404).json({ error: { message: `Unknown client "${req.params.id}"`, type: 'not_found' } });
+    res.json({ ok: true, status: client.status() });
+  });
+
+  // ---- Background Service Management ----
+  api.get('/service', (req, res) => {
+    const service = require('../service/manager');
+    res.json(service.status());
+  });
+
+  api.post('/service/install', (req, res) => {
+    const service = require('../service/manager');
+    try {
+      const result = service.install();
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  api.post('/service/uninstall', (req, res) => {
+    const service = require('../service/manager');
+    try {
+      const result = service.uninstall();
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  api.post('/service/start', (req, res) => {
+    const service = require('../service/manager');
+    try {
+      const result = service.start();
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  api.post('/service/stop', (req, res) => {
+    const service = require('../service/manager');
+    try {
+      const result = service.stop();
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // ---- Doctor Self-Healing Repair ----
+  api.post('/doctor/repair', async (req, res) => {
+    const doctor = require('../doctor');
+    try {
+      const result = await doctor.repair();
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
   });
 
   app.use('/api/dashboard', api);
@@ -731,7 +1082,7 @@ async function runDiagnostics(config, { deep = false } = {}) {
   security.push(check('Local-only binding', isLoopback(config.server.host) || config.server.host === 'localhost',
     isLoopback(config.server.host) ? 'Bound to loopback' : `Bound to ${config.server.host} (remote reachable)`, isLoopback(config.server.host) ? null : 'attention'));
   security.push(check('Secrets not exposed', true, 'Dashboard sends redacted config only'));
-  security.push(check('Dashboard remote access', !ALLOW_REMOTE, ALLOW_REMOTE ? 'ALLOWED (remote can reach dashboard)' : 'Local-only', ALLOW_REMOTE ? 'attention' : null));
+  security.push(check('Dashboard remote access', !isRemoteAllowed(), isRemoteAllowed() ? 'ALLOWED (remote can reach dashboard)' : 'Local-only', isRemoteAllowed() ? 'attention' : null));
   sections.push({ name: 'Security', checks: security });
 
   return {
@@ -752,4 +1103,4 @@ function check(label, pass, detail, overrideStatus) {
   };
 }
 
-module.exports = { registerDashboard, runDiagnostics, DASHBOARD_DIR };
+module.exports = { registerDashboard, runDiagnostics, DASHBOARD_DIR, dashboardSecurityGuard };

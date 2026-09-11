@@ -6,3 +6,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 promptrelay.local.json
+.abacus*
+*.tgz
+.backups/
+backups/
+model-cache.json
+provider-health.json

@@ -21,9 +21,26 @@ function defaultBaseURL(server) {
   return `http://${host}:${port}/v1`;
 }
 
+const { findExecutable, getExecutableVersion } = require('./fsutil');
+
 function detect() {
   const located = locateConfig();
-  return { id: ID, installed: located.found, path: located.path, found: located.found };
+  const exe = findExecutable(['opencode', 'opencode-cli']);
+  const version = exe ? getExecutableVersion(exe) : null;
+  const s = statusOpenCode();
+  const configState = located.found ? (s.hasPromptRelay ? 'configured' : 'unconfigured') : 'missing';
+  return {
+    id: ID,
+    label: LABEL,
+    protocol: PROTOCOL,
+    installed: Boolean(located.found || exe),
+    found: located.found,
+    path: located.path,
+    configPath: located.path,
+    configState,
+    executable: exe || null,
+    version: version || null,
+  };
 }
 
 function status() {

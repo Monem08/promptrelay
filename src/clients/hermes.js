@@ -26,6 +26,7 @@ const os = require('os');
 const path = require('path');
 const yaml = require('js-yaml');
 const { backupFile, upsertEnvValue, removeEnvValue } = require('./fsutil');
+const { updateModelInYaml, removeModelFromYaml } = require('./yaml-edit');
 
 const ID = 'hermes';
 const LABEL = 'Hermes';
@@ -58,9 +59,33 @@ function readYaml(file) {
   return doc && typeof doc === 'object' ? doc : {};
 }
 
+const { findExecutable, getExecutableVersion } = require('./fsutil');
+const { safeWriteSync } = require('../config/safe-write');
+
 function detect() {
   const file = configPath();
-  return { id: ID, installed: fs.existsSync(file), path: file, found: fs.existsSync(file) };
+  const exe = findExecutable(['hermes', 'hermes-agent']);
+  const version = exe ? getExecutableVersion(exe) : null;
+  const found = fs.existsSync(file);
+  let configured = false;
+  if (found) {
+    try {
+      const cfg = readYaml(file);
+      configured = cfg.model?.provider === 'custom' && Boolean(cfg.model?.base_url);
+    } catch {}
+  }
+  return {
+    id: ID,
+    label: LABEL,
+    protocol: PROTOCOL,
+    installed: Boolean(found || exe),
+    found,
+    path: file,
+    configPath: file,
+    configState: found ? (configured ? 'configured' : 'unconfigured') : 'missing',
+    executable: exe || null,
+    version: version || null,
+  };
 }
 
 function status() {
@@ -104,26 +129,36 @@ function configure(opts = {}) {
   const created = !fs.existsSync(file);
   const backupPath = created ? null : backupFile(file);
 
-  const cfg = readYaml(file);
-  const prevModel = (cfg.model && typeof cfg.model === 'object') ? cfg.model : {};
-  const next = {
-    ...cfg,
-    model: {
-      ...prevModel,
-      provider: 'custom',
-      base_url: normalizeBaseURL(opts.baseURL),
-      model: opts.model,
-      api_key: `\${${keyVar}}`,
-    },
+  const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const modelConfig = {
+    provider: 'custom',
+    base_url: normalizeBaseURL(opts.baseURL),
+    model: opts.model,
+    api_key: `\${${keyVar}}`,
   };
 
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, yaml.dump(next, { lineWidth: 120, noRefs: true }), 'utf8');
+  const nextYaml = updateModelInYaml(raw, modelConfig);
+
+  const writeResult = safeWriteSync({
+    filePath: file,
+    content: nextYaml,
+    validate: (c) => {
+      try {
+        yaml.load(c);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    },
+  });
+  if (!writeResult.ok) {
+    throw new Error(`Failed to write Hermes config: ${writeResult.error}`);
+  }
 
   // Write a LOCAL placeholder secret into .env — never an upstream provider key.
   upsertEnvValue(env, keyVar, LOCAL_KEY_VALUE);
 
-  return { id: ID, path: file, envPath: env, backupPath, created, keyVar };
+  return { id: ID, path: file, envPath: env, backupPath: writeResult.backupPath || backupPath, created, keyVar };
 }
 
 function remove(opts = {}) {
@@ -131,15 +166,14 @@ function remove(opts = {}) {
   const env = opts.targetEnv || envPath();
   const keyVar = opts.keyVar || DEFAULT_KEY_VAR;
   if (!fs.existsSync(file)) return { id: ID, path: file, removed: false, note: 'No config.yaml found.' };
-  const backupPath = backupFile(file);
-  const cfg = readYaml(file);
-  // Only strip the model provider block we manage; keep unrelated keys.
-  if (cfg.model && cfg.model.provider === 'custom') {
-    delete cfg.model;
-  }
-  fs.writeFileSync(file, yaml.dump(cfg, { lineWidth: 120, noRefs: true }), 'utf8');
+  const raw = fs.readFileSync(file, 'utf8');
+  const { text: nextYaml, removed } = removeModelFromYaml(raw);
+  const writeResult = safeWriteSync({
+    filePath: file,
+    content: nextYaml,
+  });
   removeEnvValue(env, keyVar);
-  return { id: ID, path: file, backupPath, removed: true };
+  return { id: ID, path: file, backupPath: writeResult.backupPath, removed: true };
 }
 
 module.exports = {

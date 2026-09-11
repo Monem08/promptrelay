@@ -5,28 +5,14 @@ const ollama = require('./ollama-native');
 const anthropic = require('./anthropic-native');
 const logger = require('../telemetry/logger');
 const requestLog = require('../telemetry/requests');
-
-/** Best-effort client detection from the User-Agent (metadata only). */
-function detectClient(req) {
-  const ua = String(req.headers['user-agent'] || '').toLowerCase();
-  if (ua.includes('claude')) return 'claude-code';
-  if (ua.includes('opencode')) return 'opencode';
-  if (ua.includes('hermes')) return 'hermes';
-  return 'unknown';
-}
-
-/** Ingress protocol from the request path. */
-function detectIngress(req) {
-  const p = String(req.path || req.url || '');
-  if (p.includes('/v1/messages')) return 'anthropic';
-  if (p.includes('/v1/chat')) return 'openai';
-  return 'unknown';
-}
+const routing = require('../routing/engine');
 
 /**
  * Attach a one-shot recorder that logs request METADATA after the response
  * finishes. This is deliberately off the proxy hot path (a 'finish'/'close'
  * listener) and records no message content, prompts, or secrets.
+ *
+ * Respects logging mode: 'off' records nothing new.
  */
 function attachRecorder(req, res, config, state) {
   const startedAt = Date.now();
@@ -34,19 +20,24 @@ function attachRecorder(req, res, config, state) {
   const finalize = () => {
     if (done) return;
     done = true;
+    // Respect logging mode
+    if (config.logging?.mode === 'off') return;
     try {
       requestLog.record({
-        client: detectClient(req),
-        ingress: detectIngress(req),
+        client: state.client || routing.detectClient(req),
+        ingress: routing.detectIngress(req),
         provider: state.provider || config.provider.name,
         model: state.model || config.provider.model,
-        profile: config.reasoning?.auto ? 'auto' : (config.reasoning?.default || 'unknown'),
+        profile: state.profile || (config.routing?.profile) || 'unknown',
         status: res.statusCode,
         stream: Boolean(req.body?.stream),
         totalMs: Date.now() - startedAt,
+        ttftMs: state.ttftMs || 'unknown',
         reasoning: config.reasoning?.auto ? 'auto' : (config.reasoning?.default || 'unknown'),
         fallback: state.fallback,
         retries: state.retries || 0,
+        providerAttempts: state.providerAttempts || 1,
+        tokens: state.tokens || 'unknown',
         error: res.statusCode >= 400 ? (state.error || `HTTP ${res.statusCode}`) : null,
       });
     } catch {
@@ -64,15 +55,21 @@ function adapterFor(config) {
 }
 
 /**
- * Build the ordered chain of provider configs to try: the active provider first,
- * then any explicitly configured fallback providers (resolved from the registry).
- * Fallback is opt-in (config.fallback.enabled) and never silent.
+ * Build the ordered chain of provider configs to try using the routing engine.
+ * Uses per-client routing when a client identity is available.
  */
-function buildChain(config) {
+function buildChain(config, req) {
+  if (req) {
+    return routing.buildRoutingChain(req, config);
+  }
+  // Fallback: no request context (e.g. CLI validation)
   const chain = [config];
   const fb = config.fallback;
   if (fb && fb.enabled && Array.isArray(fb.providers)) {
+    const seen = new Set([config.provider.name]);
     for (const name of fb.providers) {
+      if (seen.has(name)) continue;
+      seen.add(name);
       const profile = config.providers?.[name];
       if (!profile) {
         logger.warn(`⚠ fallback provider "${name}" is not defined in providers registry — skipping`);
@@ -82,7 +79,6 @@ function buildChain(config) {
         ...config,
         provider: { ...profile, apiKey: config.provider.apiKey },
       };
-      // Resolve per-provider apiKey from its own env var when specified.
       const envName = profile.apiKeyEnv;
       if (envName && process.env[envName]) {
         resolved.provider.apiKey = process.env[envName];
@@ -90,16 +86,17 @@ function buildChain(config) {
       chain.push(resolved);
     }
   }
-  return chain;
+  return { chain, clientId: 'unknown', profile: config.routing?.profile || 'balanced', profileSource: 'default' };
 }
 
 /**
  * Dispatch a chat request through the provider chain with explicit fallback.
+ * Uses the routing engine for per-client routing and consistent telemetry.
  */
 async function dispatchChat(req, res, config) {
-  const chain = buildChain(config);
+  const { chain, clientId, profile } = buildChain(config, req);
 
-  const state = { provider: config.provider.name, model: config.provider.model, fallback: false, retries: 0, error: null };
+  const state = routing.createRequestState(config, clientId, profile);
   attachRecorder(req, res, config, state);
 
   let index = 0;
@@ -111,19 +108,26 @@ async function dispatchChat(req, res, config) {
     // Track which provider/model actually served the request for telemetry.
     state.provider = current.provider.name;
     state.model = current.provider.model;
-    if (index > 0) state.fallback = true;
+    if (index > 0) {
+      state.fallback = true;
+      state.providerAttempts = index + 1;
+    }
 
-    const options = hasNext
-      ? {
-          tryNext: async (info) => {
-            index += 1;
-            state.error = info.error || state.error;
-            logger.warn(`↪ falling back to provider "${chain[index].provider.name}" (reason: ${info.error})`);
-            await attempt();
-            return true;
-          },
-        }
-      : {};
+    const options = {
+      clientId,
+      state,
+      ...(hasNext
+        ? {
+            tryNext: async (info) => {
+              index += 1;
+              state.error = info.error || state.error;
+              logger.warn(`↪ falling back to provider "${chain[index].provider.name}" (reason: ${info.error})`);
+              await attempt();
+              return true;
+            },
+          }
+        : {}),
+    };
 
     await adapter.chat(req, res, current, options);
   };
@@ -144,3 +148,4 @@ module.exports = {
   ollama,
   anthropic,
 };
+

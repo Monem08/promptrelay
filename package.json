@@ -1,7 +1,7 @@
 {
   "name": "@monem08/promptrelay",
-  "version": "1.1.1",
-  "description": "A provider-agnostic system-prompt gateway for OpenCode with custom providers, reasoning, streaming, and tool support.",
+  "version": "1.2.0",
+  "description": "Automatic multi-client (OpenCode, Claude Code, Hermes), multi-protocol, multi-provider local AI gateway and prompt engineering studio.",
   "main": "src/server.js",
   "type": "commonjs",
   "bin": {
@@ -39,6 +39,9 @@
   },
   "keywords": [
     "opencode",
+    "claude-code",
+    "hermes",
+    "anthropic",
     "system-prompt",
     "proxy",
     "openrouter",
@@ -47,6 +50,7 @@
     "coding-agent",
     "llm",
     "prompt-gateway",
+    "multi-client",
     "cli"
   ],
   "author": "Monem08",

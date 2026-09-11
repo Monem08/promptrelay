@@ -5,6 +5,8 @@ const { loadConfig } = require('../config');
 const { promptConfigured } = require('../prompts');
 const logger = require('../telemetry/logger');
 
+const { getAutomationManager } = require('../automation/manager');
+
 /**
  * Create the app and bind it to a port. Returns the http.Server plus helpers.
  * @param {{ host?: string, port?: number, quiet?: boolean }} [options]
@@ -15,12 +17,19 @@ function startServer(options = {}) {
   const port = options.port || config.server.port;
   const app = createApp();
 
+  const automation = getAutomationManager();
+  automation.start(config);
+
   const server = app.listen(port, host, () => {
     if (options.quiet) return;
     printBanner(host, port);
   });
 
-  return { app, server, host, port };
+  server.on('close', () => {
+    automation.stop();
+  });
+
+  return { app, server, host, port, automation };
 }
 
 function printBanner(host, port) {
@@ -56,6 +65,7 @@ function main() {
 
   function shutdown(signal) {
     logger.log(`\n${signal} received. Shutting down PromptRelay...`);
+    getAutomationManager().stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 5000).unref();
   }

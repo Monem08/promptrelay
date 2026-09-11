@@ -45,6 +45,65 @@ const MIGRATIONS = {
 
     return next;
   },
+
+  // 2 -> 3: add routing, automation, prompt scopes, security, body limit, logging mode.
+  // Add 408 to retryable status. All additive — preserves existing behavior.
+  2: (config) => {
+    const next = { ...config };
+    next.version = 3;
+
+    // Add routing defaults
+    if (!next.routing || typeof next.routing !== 'object') {
+      next.routing = {
+        profile: 'balanced',
+        clients: {},
+        clientPreferences: {},
+        disabledProviders: [],
+        disabledModels: [],
+        timeoutMs: 60000,
+      };
+    }
+
+    // Add prompt scopes
+    if (!next.promptScopes || typeof next.promptScopes !== 'object') {
+      next.promptScopes = {};
+    }
+
+    // Add automation defaults
+    if (!next.automation || typeof next.automation !== 'object') {
+      next.automation = {
+        modelRefresh: { enabled: false, intervalMinutes: 60 },
+        healthCheck: { enabled: false, intervalMinutes: 15 },
+        clientDetection: { enabled: false, intervalMinutes: 30 },
+        configSync: { enabled: false, intervalMinutes: 30 },
+      };
+    }
+
+    // Add security defaults
+    if (!next.security || typeof next.security !== 'object') {
+      next.security = {
+        dashboardToken: '',
+        gatewayAuth: { enabled: false, token: '' },
+      };
+    }
+
+    // Add body limit to server
+    if (next.server && !next.server.bodyLimitBytes) {
+      next.server.bodyLimitBytes = 2 * 1024 * 1024;
+    }
+
+    // Upgrade logging to include mode
+    if (next.logging && !next.logging.mode) {
+      next.logging.mode = 'metadata';
+    }
+
+    // Add 408 to retryable status if not present
+    if (next.retry && Array.isArray(next.retry.retryableStatus) && !next.retry.retryableStatus.includes(408)) {
+      next.retry.retryableStatus = [408, ...next.retry.retryableStatus];
+    }
+
+    return next;
+  },
 };
 
 /**
@@ -111,24 +170,39 @@ function migrateConfig(config) {
 
 /**
  * Migrate a config file on disk, creating a backup first when changes occur.
+ * Uses the safe-write layer for atomic writes with automatic backup.
+ *
  * @param {string} file
- * @returns {{ migrated: boolean, backupPath: string|null, fromVersion: number, toVersion: number }}
+ * @param {object} [options]
+ * @param {boolean} [options.dryRun=false] - If true, report what would change without writing
+ * @returns {{ migrated: boolean, backupPath: string|null, fromVersion: number, toVersion: number, dryRun: boolean }}
  */
-function migrateConfigFile(file) {
+function migrateConfigFile(file, options = {}) {
+  const { dryRun = false } = options;
+
   if (!file || !fs.existsSync(file)) {
-    return { migrated: false, backupPath: null, fromVersion: 0, toVersion: CONFIG_VERSION };
+    return { migrated: false, backupPath: null, fromVersion: 0, toVersion: CONFIG_VERSION, dryRun };
   }
 
   const raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
   const { config, migrated, fromVersion, toVersion } = migrateConfig(raw);
 
   if (!migrated) {
-    return { migrated: false, backupPath: null, fromVersion, toVersion };
+    return { migrated: false, backupPath: null, fromVersion, toVersion, dryRun };
   }
 
-  const backupPath = backupConfigFile(file);
-  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-  return { migrated: true, backupPath, fromVersion, toVersion };
+  if (dryRun) {
+    return { migrated: true, backupPath: null, fromVersion, toVersion, dryRun: true, changes: config };
+  }
+
+  // Use the safe-write layer for atomic backup + write.
+  const { safeWriteJsonSync } = require('./safe-write');
+  const result = safeWriteJsonSync(file, config);
+  if (!result.ok) {
+    throw new Error(`Migration write failed: ${result.error}`);
+  }
+
+  return { migrated: true, backupPath: result.backupPath, fromVersion, toVersion, dryRun: false };
 }
 
 module.exports = {

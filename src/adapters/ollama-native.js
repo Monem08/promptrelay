@@ -105,9 +105,9 @@ function openAIToolCallsToOllama(toolCalls) {
   return converted.length ? converted : undefined;
 }
 
-function convertMessages(incomingMessages, config) {
+function convertMessages(incomingMessages, config, clientId) {
   const original = Array.isArray(incomingMessages) ? incomingMessages : [];
-  const policyMessages = applyPromptPolicy(original, config);
+  const policyMessages = applyPromptPolicy(original, config, clientId);
   const toolNameMap = buildToolCallNameMap(original);
   const result = [];
 
@@ -196,11 +196,11 @@ function convertFormat(responseFormat) {
   return undefined;
 }
 
-function buildNativeBody(req, incoming, config) {
+function buildNativeBody(req, incoming, config, clientId) {
   const reasoning = incomingReasoning(incoming, config);
   const nativeBody = {
     model: resolveModel(incoming.model, config),
-    messages: convertMessages(incoming.messages, config),
+    messages: convertMessages(incoming.messages, config, clientId),
     stream: incoming.stream === true,
     think: toOllamaThink(reasoning),
   };
@@ -457,7 +457,7 @@ async function streamToOpenAI(upstream, res, requestedModel, streamOptions) {
 async function chat(req, res, config, options = {}) {
   const incoming = req.body || {};
   const controller = createAbortController(req, res);
-  const { nativeBody, reasoning } = buildNativeBody(req, incoming, config);
+  const { nativeBody, reasoning } = buildNativeBody(req, incoming, config, options.clientId);
   const startedAt = Date.now();
   const chatPath = config.provider.chatPath || '/api/chat';
   const url = joinURL(config.provider.baseURL, chatPath);
@@ -486,12 +486,28 @@ async function chat(req, res, config, options = {}) {
         signal: controller.signal,
       },
       config.retry,
-      { onRetry: (info) => logger.warn(`↻ retry ollama chat (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error) },
+      {
+        onRetry: (info) => {
+          if (options.state) options.state.retries = (options.state.retries || 0) + 1;
+          logger.warn(`↻ retry ollama chat (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error);
+        },
+      },
     );
 
     if (config.logging.requests) logger.log(`Connected   : ${Date.now() - startedAt}ms`);
 
     if (!upstream.ok) {
+      const { isRetryableStatus } = require('./retry');
+      if (isRetryableStatus(upstream.status, config.retry?.retryableStatus) && typeof options.tryNext === 'function' && !res.headersSent) {
+        logger.warn(`⚠ provider "${config.provider.name}" returned exhausted retryable status ${upstream.status}. Trying fallback…`);
+        const handled = await options.tryNext({
+          error: `Ollama returned status ${upstream.status}`,
+          status: upstream.status,
+          provider: config.provider.name,
+        });
+        if (handled) return;
+      }
+
       const text = await upstream.text();
       let parsed;
       try { parsed = JSON.parse(text); } catch { parsed = null; }
@@ -502,6 +518,7 @@ async function chat(req, res, config, options = {}) {
         },
       });
     }
+
 
     if (incoming.stream === true) {
       await streamToOpenAI(upstream, res, nativeBody.model, incoming.stream_options);

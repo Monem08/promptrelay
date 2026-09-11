@@ -13,13 +13,14 @@
  * Mutates and returns the same IR object.
  */
 
-const { loadPrompt } = require('../prompts');
+const { resolvePrompt } = require('../prompts/scopes');
 
-function applyPromptPolicyIR(ir, config) {
-  const mode = config?.prompt?.mode || 'replace';
+function applyPromptPolicyIR(ir, config, clientId) {
+  const resolved = resolvePrompt(clientId, config);
+  const mode = resolved.mode;
   if (mode === 'passthrough') return ir;
 
-  const custom = loadPrompt(config);
+  const custom = resolved.text;
   const existing = ir.system ? String(ir.system) : '';
 
   if (mode === 'prepend') {

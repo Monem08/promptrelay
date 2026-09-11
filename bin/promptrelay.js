@@ -77,7 +77,7 @@ async function handleModels(sub, rest) {
       await commands.modelsFree();
       break;
     case 'refresh':
-      await commands.modelsRefresh();
+      await commands.modelsRefresh({ clear: Boolean(flags.clear) });
       break;
     case 'recommend':
       await commands.modelsRecommend({ profile: flags.profile || 'balanced' });
@@ -103,10 +103,20 @@ async function handleReasoning(sub, rest) {
   }
 }
 
-async function handleConfig(sub) {
+async function handleConfig(sub, rest = []) {
+  const { flags, positional } = parseFlags(rest);
   switch ((sub || '').toLowerCase()) {
     case 'validate':
       commands.configValidate();
+      break;
+    case 'migrate':
+      await commands.configMigrate({ dryRun: Boolean(flags['dry-run'] || flags.dryRun) });
+      break;
+    case 'backups':
+      commands.configBackups();
+      break;
+    case 'restore':
+      commands.configRestore(positional[0]);
       break;
     case undefined:
     case '':
@@ -117,6 +127,7 @@ async function handleConfig(sub) {
       process.exitCode = 1;
   }
 }
+
 
 async function handleOpencode(sub) {
   switch ((sub || '').toLowerCase()) {
@@ -158,6 +169,10 @@ async function handleClient(sub, rest) {
     case 'rm':
       commands.clientRemove(positional[0]);
       break;
+    case 'test':
+    case 'validate':
+      await commands.clientValidate(positional[0], { live: Boolean(flags.live) });
+      break;
     default:
       // Allow `client <id>` as a shortcut for `client setup <id>`.
       if (sub) {
@@ -167,6 +182,36 @@ async function handleClient(sub, rest) {
       }
   }
 }
+
+async function handleService(sub) {
+  switch ((sub || 'status').toLowerCase()) {
+    case 'status':
+      commands.serviceStatus();
+      break;
+    case 'install':
+    case 'enable':
+      commands.serviceInstall();
+      break;
+    case 'uninstall':
+    case 'remove':
+    case 'disable':
+      commands.serviceUninstall();
+      break;
+    case 'start':
+      commands.serviceStart();
+      break;
+    case 'stop':
+      commands.serviceStop();
+      break;
+    case 'restart':
+      commands.serviceRestart();
+      break;
+    default:
+      console.error(`Unknown service subcommand: ${sub}`);
+      process.exitCode = 1;
+  }
+}
+
 
 async function handlePrompt(sub, rest) {
   const { positional } = parseFlags(rest);
@@ -237,15 +282,33 @@ async function main() {
     case 'dashboard':
       await commands.dashboard({ print: rest.includes('--print') || rest.includes('--terminal') });
       break;
-    case 'setup':
-      await wizard.setup();
+    case 'setup': {
+      const { flags } = parseFlags(argv.slice(1));
+      await wizard.setup(flags);
       break;
+    }
     case 'provider':
       await handleProvider(sub, rest);
       break;
     case 'models':
       await handleModels(sub, rest);
       break;
+    case 'refresh': {
+      // Documented compatibility alias: promptrelay refresh --clear -> promptrelay models refresh --clear
+      const { flags } = parseFlags(argv.slice(1));
+      await commands.modelsRefresh({ clear: Boolean(flags.clear) });
+      break;
+    }
+    case 'repair': {
+      // Documented compatibility alias: promptrelay repair <client> -> promptrelay client repair <client>
+      if (sub) {
+        await commands.clientSetup(sub, {});
+      } else {
+        console.error('Usage: promptrelay repair <client>');
+        process.exitCode = 1;
+      }
+      break;
+    }
     case 'model':
       // `model use <id>`
       if ((sub || '').toLowerCase() === 'use') {
@@ -267,14 +330,18 @@ async function main() {
       await handlePrompt(sub, rest);
       break;
     case 'config':
-      await handleConfig(sub);
+      await handleConfig(sub, rest);
       break;
+
     case 'opencode':
       await handleOpencode(sub);
       break;
     case 'client':
     case 'clients':
       await handleClient(sub, rest);
+      break;
+    case 'service':
+      await handleService(sub);
       break;
     case 'keys':
       await handleKeys(sub, rest);

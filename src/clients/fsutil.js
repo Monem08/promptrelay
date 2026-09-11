@@ -53,4 +53,53 @@ function removeEnvValue(file, key) {
   return kept.length !== existing.filter(Boolean).length;
 }
 
-module.exports = { backupFile, readJsonIfExists, writeJson, upsertEnvValue, removeEnvValue };
+const { execFileSync } = require('child_process');
+
+function findExecutable(names) {
+  const exes = Array.isArray(names) ? names : [names];
+  const isWindows = process.platform === 'win32';
+  const pathDirs = (process.env.PATH || '').split(path.delimiter);
+  const extensions = isWindows ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';') : [''];
+  for (const name of exes) {
+    for (const dir of pathDirs) {
+      if (!dir) continue;
+      for (const ext of extensions) {
+        const full = path.join(dir, isWindows && !name.toLowerCase().endsWith(ext.toLowerCase()) ? `${name}${ext}` : name);
+        if (fs.existsSync(full)) {
+          try {
+            const stat = fs.statSync(full);
+            if (stat.isFile()) return full;
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function getExecutableVersion(exePath) {
+  if (!exePath) return null;
+  try {
+    const out = execFileSync(exePath, ['--version'], {
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const match = out.trim().match(/v?(\d+\.\d+(\.\d+)?(-[a-zA-Z0-9.]+)?)/);
+    return match ? match[0] : out.trim().split(/\r?\n/)[0].slice(0, 40);
+  } catch {
+    return null;
+  }
+}
+
+module.exports = {
+  backupFile,
+  readJsonIfExists,
+  writeJson,
+  upsertEnvValue,
+  removeEnvValue,
+  findExecutable,
+  getExecutableVersion,
+};

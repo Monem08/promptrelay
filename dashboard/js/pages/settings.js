@@ -5,13 +5,13 @@ import {
 } from '../ui.js';
 
 const AUTOMATION_FIELDS = [
-  ['autoRefreshModels', 'Auto refresh models', 'Periodically refresh the model metadata cache'],
-  ['autoHealthCheck', 'Auto health check', 'Run lightweight provider health checks in the background'],
-  ['autoDetectClientConfig', 'Auto detect client config changes', 'Watch for OpenCode / Claude Code / Hermes config changes'],
-  ['autoRepairSafe', 'Auto repair safe issues', 'Apply safe, non-destructive fixes automatically'],
-  ['autoStart', 'Auto start', 'Start the gateway automatically when a client connects'],
-  ['autoSyncClients', 'Auto sync clients', 'Keep client wiring in sync with the active provider/model'],
-  ['autoRefreshLifecycle', 'Auto refresh lifecycle metadata', 'Refresh model lifecycle/deprecation metadata'],
+  ['modelRefresh', 'autoRefreshModels', 'Auto refresh models', 'Periodically refresh the model metadata cache'],
+  ['healthCheck', 'autoHealthCheck', 'Auto health check', 'Run lightweight provider health checks in the background'],
+  ['clientDetection', 'autoDetectClientConfig', 'Auto detect client config changes', 'Watch for OpenCode / Claude Code / Hermes config changes'],
+  ['autoRepair', 'autoRepairSafe', 'Auto repair safe issues', 'Apply safe, non-destructive fixes automatically'],
+  ['serviceStart', 'autoStart', 'Auto start service', 'Keep background gateway service active'],
+  ['configSync', 'autoSyncClients', 'Auto sync clients', 'Keep client wiring in sync with the active provider/model'],
+  ['updateCheck', 'autoRefreshLifecycle', 'Auto refresh lifecycle metadata', 'Refresh model lifecycle/deprecation metadata'],
 ];
 
 function sectionCard(title, sub, children) {
@@ -42,9 +42,13 @@ export async function render(page, ctx) {
   const loading = h('div', {}, [skeleton('skeleton-line', 'width:25%'), skeleton('skeleton-card'), skeleton('skeleton-card')]);
   page.appendChild(loading);
 
-  let data, status;
+  let data, status, autoStatus;
   try {
-    [data, status] = await Promise.all([api.settings(), api.status().catch(() => null)]);
+    [data, status, autoStatus] = await Promise.all([
+      api.settings(),
+      api.status().catch(() => null),
+      api.automationStatus().catch(() => null),
+    ]);
   } catch (e) {
     page.removeChild(loading);
     page.appendChild(errorState({ title: 'Could not load settings', message: e.message, onRetry: () => ctx.navigate('settings', true) }));
@@ -121,14 +125,74 @@ export async function render(page, ctx) {
   ]));
 
   // ============ Automation ============
-  const autoSave = async (key, value) => {
-    try { await api.saveSettings({ automation: { [key]: value } }); toast('Preference saved', { type: 'success' }); }
-    catch (err) { toast('Could not save preference', { type: 'error', message: err.message }); }
+  const autoToggle = async (jobId, toggleKey, enabled) => {
+    try {
+      await api.toggleAutomation(jobId, enabled);
+      toast('Automation updated', { type: 'success' });
+      ctx.navigate('settings', true);
+    } catch (err) {
+      toast('Could not update automation', { type: 'error', message: err.message });
+    }
   };
-  page.appendChild(sectionCard('Automation', 'Background behaviors — saved preferences, applied where the gateway supports them', [
-    ...AUTOMATION_FIELDS.map(([key, label, hint], i) => {
-      const row = toggleRow(label, hint, !!automation[key], (v) => autoSave(key, v));
-      if (i === AUTOMATION_FIELDS.length - 1) row.style.borderBottom = 'none';
+
+  const autoRun = async (jobId) => {
+    try {
+      const res = await api.runAutomation(jobId);
+      const dur = res.result?.durationMs ?? 0;
+      toast(`Job executed (${dur}ms)`, { type: 'success' });
+      ctx.navigate('settings', true);
+    } catch (err) {
+      toast(`Job execution failed`, { type: 'error', message: err.message });
+    }
+  };
+
+  page.appendChild(sectionCard('Automation', 'Background behaviors — running scheduler with live intervals, non-overlapping mutex, and Run Now', [
+    ...AUTOMATION_FIELDS.map(([jobId, toggleKey, label, hint], i) => {
+      const job = autoStatus?.[jobId] || null;
+      const isEnabled = job ? job.enabled : !!automation[toggleKey];
+      const isRunning = job ? job.running : false;
+      const lastRun = job?.lastRun ? `${fmtTime(job.lastRun)} (${timeAgo(job.lastRun)})` : 'Never';
+      const nextRun = job?.nextRun && isEnabled ? `${fmtTime(job.nextRun)} (${timeAgo(job.nextRun)})` : (isEnabled ? 'Scheduled' : 'Disabled');
+      const intervalMin = job?.intervalMinutes || 30;
+
+      const metaChildren = [
+        h('div', { style: 'font-size:var(--fs-sm);color:var(--text-1);font-weight:500' }, [label]),
+        hint ? h('div.field-hint', {}, [hint]) : null,
+        h('div.muted-3.mt-4', { style: 'font-size:var(--fs-xs)' }, [
+          `Interval: ${intervalMin}m | Last run: `,
+          h('span.mono', {}, [lastRun]),
+          ` | Next run: `,
+          h('span.mono', {}, [nextRun]),
+        ]),
+      ];
+      if (job?.lastError) {
+        metaChildren.push(h('div.mt-4', { style: 'font-size:var(--fs-xs);color:var(--red)' }, [`Error: ${job.lastError}`]));
+      }
+
+      const controls = h('div.row.gap-8', { style: 'align-items:center' }, [
+        isRunning ? badge('Running', 'amber') : (isEnabled ? badge('Active', 'green') : badge('Disabled', 'gray')),
+        btn('Run Now', {
+          size: 'sm',
+          icon: 'zap',
+          onClick: () => autoRun(jobId),
+        }),
+        h('label.toggle', {}, [
+          h('input', {
+            type: 'checkbox',
+            checked: isEnabled,
+            onchange: (e) => autoToggle(jobId, toggleKey, e.target.checked),
+          }),
+          h('span.toggle-track', {}, [h('span.toggle-thumb')]),
+        ]),
+      ]);
+
+      const row = h('div.row.row-between.wrap.gap-8', {
+        style: `padding:12px 0;${i < AUTOMATION_FIELDS.length - 1 ? 'border-bottom:1px solid var(--border)' : ''}`,
+      }, [
+        h('div', { style: 'flex:1;min-width:260px' }, metaChildren),
+        controls,
+      ]);
+
       return row;
     }),
   ]));
@@ -150,9 +214,68 @@ export async function render(page, ctx) {
       try { const r = await api.refreshModels(); toast('Model cache refreshed', { message: r.models ? `${r.models.length} models` : undefined, type: 'success' }); ctx.navigate('settings', true); }
       catch (err) { toast('Refresh failed', { type: 'error', message: err.message }); }
     } }),
-    h('span.field-hint', {}, ['To clear the cache from disk, run ', h('span.mono', {}, ['promptrelay refresh --clear'])]),
+    h('span.field-hint', {}, ['To clear the cache from disk, run ', h('span.mono', {}, ['promptrelay models refresh --clear'])]),
   ]));
   page.appendChild(sectionCard('Cache', 'Model metadata cache', cacheChildren));
+
+  // ============ Background Service ============
+  let svcStatus = null;
+  try { svcStatus = await api.serviceStatus(); } catch {}
+  if (svcStatus) {
+    const isInstalled = svcStatus.installed;
+    const isRunning = svcStatus.running;
+    const svcChildren = [
+      h('dl.dl', {}, [
+        h('dt', {}, ['Platform']), h('dd', {}, [h('span.mono', {}, [svcStatus.platform || UNKNOWN])]),
+        h('dt', {}, ['Service Type']), h('dd', {}, [svcStatus.serviceType || UNKNOWN]),
+        h('dt', {}, ['Status']), h('dd', {}, [
+          isInstalled
+            ? (isRunning ? badge('Running in background', 'green') : badge('Installed (stopped)', 'amber'))
+            : badge('Not installed', 'gray'),
+        ]),
+      ]),
+      h('div.row.gap-8.mt-12', {}, [
+        !isInstalled
+          ? btn('Install Service', { variant: 'primary', icon: 'zap', onClick: async () => {
+              try {
+                await api.installService();
+                toast('Background service installed!', { type: 'success' });
+                ctx.navigate('settings', true);
+              } catch (e) { toast('Install failed', { type: 'error', message: e.message }); }
+            } })
+          : null,
+        isInstalled && !isRunning
+          ? btn('Start Service', { variant: 'primary', icon: 'check', onClick: async () => {
+              try {
+                await api.startService();
+                toast('Background service started', { type: 'success' });
+                ctx.navigate('settings', true);
+              } catch (e) { toast('Start failed', { type: 'error', message: e.message }); }
+            } })
+          : null,
+        isInstalled && isRunning
+          ? btn('Stop Service', { icon: 'close', onClick: async () => {
+              try {
+                await api.stopService();
+                toast('Background service stopped', { type: 'success' });
+                ctx.navigate('settings', true);
+              } catch (e) { toast('Stop failed', { type: 'error', message: e.message }); }
+            } })
+          : null,
+        isInstalled
+          ? btn('Uninstall Service', { variant: 'ghost', icon: 'trash', onClick: async () => {
+              try {
+                await api.uninstallService();
+                toast('Background service uninstalled', { type: 'info' });
+                ctx.navigate('settings', true);
+              } catch (e) { toast('Uninstall failed', { type: 'error', message: e.message }); }
+            } })
+          : null,
+      ]),
+      h('div.field-hint.mt-8', {}, ['The background service automatically runs PromptRelay at login on Windows (Scheduled Task), Linux (systemd), or macOS (launchd).']),
+    ];
+    page.appendChild(sectionCard('Background Service', 'OS service daemon management', svcChildren));
+  }
 
   // ============ Updates ============
   page.appendChild(sectionCard('Updates', 'PromptRelay version and update channel', [
