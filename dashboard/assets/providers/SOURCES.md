@@ -16,8 +16,8 @@ This directory contains sanitized, local, official brand vector assets (SVGs) fo
 | **openai** | `openai.svg` | [Simple Icons / OpenAI](https://simpleicons.org/?q=openai) | OpenAI Trademark |
 | **anthropic** | `anthropic.svg` | [Simple Icons / Anthropic](https://simpleicons.org/?q=anthropic) | Anthropic, PBC Trademark |
 | **claude-code** | `claude-code.svg` | [Simple Icons / Claude Code](https://simpleicons.org/?q=claude) | Anthropic Trademark |
-| **opencode** | `opencode.svg` | OpenCode CLI Identity Mark | OpenCode Project |
-| **hermes** | `hermes.svg` | [Simple Icons / Hermes](https://simpleicons.org/?q=hermes) (Nous Research) | Nous Research |
+| **opencode** | `opencode.svg` | [AnomalyCo OpenCode Official UI Brand Assets](https://github.com/anomalyco/opencode) | AnomalyCo OpenCode Project |
+| **hermes** | `hermes.svg` | [Nous Research Hermes Agent Official Brand Assets](https://github.com/NousResearch/hermes-agent) | Nous Research |
 | **ollama** | `ollama.svg` | [Simple Icons / Ollama](https://simpleicons.org/?q=ollama) | Ollama |
 | **openrouter** | `openrouter.svg` | [Simple Icons / OpenRouter](https://simpleicons.org/?q=openrouter) | OpenRouter |
 | **gemini** | `gemini.svg` | [Simple Icons / Google Gemini](https://simpleicons.org/?q=googlegemini) | Google LLC Trademark |

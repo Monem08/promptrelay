@@ -1,1 +1,5 @@
-<svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect x="2" y="3" width="20" height="18" rx="3" stroke="#2563eb" stroke-width="2"/><path d="M8 9L5 12L8 15M16 9L19 12L16 15M13.5 8L10.5 16" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg viewBox="0 0 24 24" width="24" height="24" fill="none">
+  <rect width="24" height="24" rx="4" fill="#18181b"/>
+  <path d="M15 10.5V16.5H9V10.5H15Z" fill="#71717a"/>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M18 19.5H6V4.5H18V19.5ZM15 7.5H9V16.5H15V7.5Z" fill="#ffffff"/>
+</svg>
