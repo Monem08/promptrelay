@@ -13,7 +13,7 @@ const CONFIG_VERSION = 3;
 const PROMPT_MODES = ['replace', 'prepend', 'append', 'passthrough'];
 const TRANSPORTS = ['openai-compatible', 'ollama-native', 'anthropic-native'];
 const AUTH_TYPES = ['bearer', 'header', 'none'];
-const REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'max'];
+const REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 const DEFAULTS = {
   version: CONFIG_VERSION,
@@ -50,6 +50,7 @@ const DEFAULTS = {
     injectDefault: false,
     // 'auto' lets PromptRelay pick a reasonable effort per request.
     auto: false,
+    supported: 'unknown',
   },
   // Reliability configuration.
   retry: {

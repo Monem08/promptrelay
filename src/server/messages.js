@@ -24,7 +24,7 @@ const {
   formatSSE,
 } = require('../ir');
 const { createAbortController } = require('../providers/http');
-const { promptConfigured } = require('../prompts');
+const { promptConfigured, scopes } = require('../prompts');
 const logger = require('../telemetry/logger');
 const routing = require('../routing/engine');
 
@@ -42,11 +42,13 @@ async function handleMessages(req, res, config, externalState = null) {
   const { chain, clientId, profile } = routing.buildRoutingChain(req, config);
   const state = externalState || routing.createRequestState(config, clientId, profile);
 
-  if (config.prompt?.mode !== 'passthrough' && !promptConfigured(config, clientId)) {
+  const effectiveMode = scopes.modeForScope(clientId, config);
+  if (effectiveMode !== 'passthrough' && !promptConfigured(config, clientId)) {
+    const promptFile = scopes.promptFileForScope(clientId, config);
     return anthropicError(
       res,
       503,
-      `Custom instruction is not configured. Open ${config.paths.promptFile} and replace ${config.prompt.placeholder}`,
+      `Custom instruction is not configured. Open ${promptFile} and replace ${config.prompt.placeholder}`,
       'promptrelay_prompt_not_configured',
     );
   }

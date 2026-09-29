@@ -1,0 +1,34 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4141
+  },
+  "prompt": {
+    "mode": "prepend",
+    "file": "system_prompt.txt"
+  },
+  "provider": {
+    "name": "OpenCode Zen",
+    "transport": "openai-compatible",
+    "baseURL": "https://opencode.ai/zen/v1",
+    "model": "space-bunny-free",
+    "forceModel": true,
+    "apiKeyEnv": "OPENCODE_API_KEY",
+    "auth": {
+      "type": "bearer"
+    }
+  },
+  "reasoning": {
+    "supported": [
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ],
+    "default": "high",
+    "injectDefault": false
+  },
+  "logging": {
+    "requests": true
+  }
+}

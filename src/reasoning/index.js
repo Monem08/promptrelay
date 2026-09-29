@@ -11,7 +11,7 @@
  * Ollama `think`). An "auto" mode lets PromptRelay pick a sensible effort.
  */
 
-const LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'max'];
+const LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const LEVEL_RANK = LEVELS.reduce((acc, level, index) => {
   acc[level] = index;
   return acc;
@@ -35,8 +35,10 @@ const ALIASES = {
   thinking: 'high',
   think: 'high',
   high: 'high',
+  xhigh: 'xhigh',
+  'extra-high': 'xhigh',
+  'extra_high': 'xhigh',
   maximum: 'max',
-  xhigh: 'max',
   extreme: 'max',
   max: 'max',
 };
@@ -114,7 +116,7 @@ function autoReasoning(body, config) {
  * @param {string} level
  * @returns {string|null} null means "omit reasoning_effort"
  */
-function toOpenAIEffort(level) {
+function toOpenAIEffort(level, configOrProvider = null) {
   const normalized = normalizeReasoning(level, null);
   switch (normalized) {
     case 'none':
@@ -127,8 +129,20 @@ function toOpenAIEffort(level) {
       return 'medium';
     case 'high':
       return 'high';
-    case 'max':
+    case 'xhigh': {
+      const p = configOrProvider?.provider || configOrProvider;
+      const isStrictOpenAI = p && (
+        (p.name && String(p.name).toLowerCase() === 'openai') ||
+        (p.baseURL && String(p.baseURL).includes('api.openai.com'))
+      );
+      if (isStrictOpenAI) return 'high';
+      return 'xhigh';
+    }
+    case 'max': {
+      const supported = configOrProvider?.reasoning?.supported;
+      if (Array.isArray(supported) && supported.includes('max')) return 'max';
       return 'high';
+    }
     default:
       return null;
   }
@@ -152,7 +166,7 @@ function applyOpenAIReasoning(body, config) {
   if (out.reasoning && typeof out.reasoning === 'object') delete out.reasoning;
 
   if (explicit !== undefined) {
-    const effort = toOpenAIEffort(explicit);
+    const effort = toOpenAIEffort(explicit, config);
     if (effort) out.reasoning_effort = effort;
     else delete out.reasoning_effort;
     return out;
@@ -160,13 +174,13 @@ function applyOpenAIReasoning(body, config) {
 
   if (config?.reasoning?.auto) {
     const level = autoReasoning(body, config);
-    const effort = toOpenAIEffort(level);
+    const effort = toOpenAIEffort(level, config);
     if (effort) out.reasoning_effort = effort;
     return out;
   }
 
   if (config?.reasoning?.injectDefault) {
-    const effort = toOpenAIEffort(config.reasoning.default);
+    const effort = toOpenAIEffort(config.reasoning.default, config);
     if (effort) out.reasoning_effort = effort;
   }
 
@@ -190,6 +204,7 @@ function toOllamaThink(value) {
     case 'medium':
       return 'medium';
     case 'high':
+    case 'xhigh':
     case 'max':
       return 'high';
     default:

@@ -6,4 +6,5 @@ module.exports = {
   ...require('./cache'),
   ...require('./discovery'),
   ...require('./ranking'),
+  ...require('./variants'),
 };

@@ -13,14 +13,16 @@ const {
   applyOpenAIReasoning,
 } = require('../src/reasoning');
 
-test('LEVELS are the six canonical levels in effort order', () => {
-  assert.deepEqual(LEVELS, ['none', 'minimal', 'low', 'medium', 'high', 'max']);
+test('LEVELS are the canonical levels in effort order', () => {
+  assert.deepEqual(LEVELS, ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 });
 
 test('normalizeReasoning maps aliases and booleans', () => {
   assert.equal(normalizeReasoning('off'), 'none');
   assert.equal(normalizeReasoning('MIN'), 'minimal');
   assert.equal(normalizeReasoning('thinking'), 'high');
+  assert.equal(normalizeReasoning('xhigh'), 'xhigh');
+  assert.equal(normalizeReasoning('extra-high'), 'xhigh');
   assert.equal(normalizeReasoning('extreme'), 'max');
   assert.equal(normalizeReasoning(true), 'high');
   assert.equal(normalizeReasoning(false), 'none');
@@ -34,6 +36,7 @@ test('toOpenAIEffort maps levels; none/max handled correctly', () => {
   assert.equal(toOpenAIEffort('low'), 'low');
   assert.equal(toOpenAIEffort('medium'), 'medium');
   assert.equal(toOpenAIEffort('high'), 'high');
+  assert.equal(toOpenAIEffort('xhigh'), 'xhigh');
   assert.equal(toOpenAIEffort('max'), 'high');
 });
 
@@ -43,6 +46,7 @@ test('toOllamaThink maps levels to boolean/level', () => {
   assert.equal(toOllamaThink('low'), 'low');
   assert.equal(toOllamaThink('medium'), 'medium');
   assert.equal(toOllamaThink('high'), 'high');
+  assert.equal(toOllamaThink('xhigh'), 'high');
   assert.equal(toOllamaThink('max'), 'high');
 });
 
@@ -82,4 +86,43 @@ test('applyOpenAIReasoning strips PromptRelay-only fields and injects default', 
     { reasoning: { default: 'none', injectDefault: true } },
   );
   assert.equal('reasoning_effort' in none, false);
+});
+
+test('applyOpenAIReasoning preserves xhigh for compatible OpenAI requests', () => {
+  const result = applyOpenAIReasoning(
+    { messages: [], reasoning_effort: 'xhigh' },
+    { reasoning: { default: 'low', injectDefault: false } },
+  );
+  assert.equal(result.reasoning_effort, 'xhigh');
+
+  // Also via reasoningEffort alias
+  const fromCamel = applyOpenAIReasoning(
+    { messages: [], reasoningEffort: 'xhigh' },
+    { reasoning: { default: 'low', injectDefault: false } },
+  );
+  assert.equal(fromCamel.reasoning_effort, 'xhigh');
+  assert.equal('reasoningEffort' in fromCamel, false);
+
+  // High stays high
+  const highResult = applyOpenAIReasoning(
+    { messages: [], reasoning_effort: 'high' },
+    { reasoning: { default: 'low', injectDefault: false } },
+  );
+  assert.equal(highResult.reasoning_effort, 'high');
+});
+
+test('applyOpenAIReasoning: explicit client reasoning beats configured default', () => {
+  const result = applyOpenAIReasoning(
+    { messages: [], reasoning_effort: 'xhigh' },
+    { reasoning: { default: 'low', injectDefault: true } },
+  );
+  assert.equal(result.reasoning_effort, 'xhigh');
+});
+
+test('applyOpenAIReasoning: injectDefault=false does not force a reasoning field', () => {
+  const result = applyOpenAIReasoning(
+    { messages: [] },
+    { reasoning: { default: 'high', injectDefault: false } },
+  );
+  assert.equal('reasoning_effort' in result, false);
 });

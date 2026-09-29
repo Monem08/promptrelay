@@ -65,7 +65,7 @@ Prefer to do it by hand? See [Manual configuration](#manual-configuration).
 ## Why PromptRelay
 
 - **One prompt, any provider.** Define your system prompt once. PromptRelay injects or replaces it on every request, regardless of which model or provider you point it at.
-- **Reasoning that works everywhere.** A single effort scale (`none → minimal → low → medium → high → max`) is translated to each provider's native knobs (OpenAI `reasoning_effort`, Anthropic/OpenRouter `reasoning` budgets, Ollama `think`, etc.).
+- **Reasoning that works everywhere.** A single effort scale (`none → minimal → low → medium → high → xhigh → max`) is translated to each provider's native knobs (OpenAI `reasoning_effort`, Anthropic/OpenRouter `reasoning` budgets, Ollama `think`, etc.).
 - **Honest model data.** Model discovery reports capabilities from the provider's real metadata. Anything the provider doesn't expose is reported as **`unknown`** — never guessed, never fabricated.
 - **Reliability built in.** Automatic retries with exponential backoff + jitter and `Retry-After` support for transient errors, plus **explicit** (always-logged, never silent) provider fallback.
 - **Safe by default.** Secrets are masked in every log line, status output, and config dump. Your API keys live in `~/.promptrelay/.env`, never in the JSON config.
@@ -147,6 +147,7 @@ PromptRelay ships with presets for the most common setups:
 | Preset | Transport | Notes |
 | --- | --- | --- |
 | **OpenRouter** | `openai-compatible` | Easiest / recommended. Hundreds of models, rich metadata, free tier. |
+| **OpenCode Zen** | `openai-compatible` | OpenCode Zen endpoint (`space-bunny-free`, `xhigh` reasoning, free tier). |
 | **Ollama Cloud** | `ollama-native` | Native fast mode against Ollama's hosted API. |
 | **Ollama Local** | `ollama-native` | No API key needed; talks to a local `ollama serve`. |
 | **Custom OpenAI-compatible** | `openai-compatible` | Any endpoint that speaks the OpenAI `/v1/chat/completions` API. |

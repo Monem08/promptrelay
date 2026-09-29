@@ -23,8 +23,9 @@ const KNOWN_CREDENTIAL_ENVS = [
   { envVar: 'FIREWORKS_API_KEY',      provider: 'fireworks',  label: 'Fireworks' },
   { envVar: 'PERPLEXITY_API_KEY',     provider: 'perplexity', label: 'Perplexity' },
   { envVar: 'COHERE_API_KEY',         provider: 'cohere',     label: 'Cohere' },
-  { envVar: 'XAI_API_KEY',            provider: 'xai',        label: 'xAI' },
-  { envVar: 'AZURE_OPENAI_API_KEY',   provider: 'azure',      label: 'Azure OpenAI' },
+  { envVar: 'XAI_API_KEY',            provider: 'xai',          label: 'xAI' },
+  { envVar: 'AZURE_OPENAI_API_KEY',   provider: 'azure',        label: 'Azure OpenAI' },
+  { envVar: 'OPENCODE_API_KEY',       provider: 'opencode-zen', label: 'OpenCode Zen' },
 ];
 
 /**

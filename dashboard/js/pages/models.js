@@ -104,8 +104,8 @@ function drawerFor(m, ctx) {
       ...kv('Cache read/write', unknownSpan()),
     ]),
     sec('Reasoning', [
-      ...kv('Reasoning', fmtBool(m.reasoning)),
-      ...kv('Reasoning efforts', isUnknown(m.reasoningEfforts) ? unknownSpan() : (Array.isArray(m.reasoningEfforts) ? m.reasoningEfforts.join(', ') : String(m.reasoningEfforts))),
+      ...kv('Reasoning', m.reasoning === true ? 'Supported' : (m.reasoning === false ? 'None' : unknownSpan())),
+      ...kv('Efforts', isUnknown(m.reasoningEfforts) ? unknownSpan() : (Array.isArray(m.reasoningEfforts) ? m.reasoningEfforts.map((e) => e.charAt(0).toUpperCase() + e.slice(1)).join(' · ') : String(m.reasoningEfforts))),
     ]),
     sec('Health', [
       ...kv('Status', m.health ? statusDot(m.health.ok === true ? 'green' : m.health.ok === false ? 'red' : 'gray', m.health.ok === true ? 'Healthy' : m.health.ok === false ? 'Error' : 'Unknown') : statusDot('gray', 'Unknown')),

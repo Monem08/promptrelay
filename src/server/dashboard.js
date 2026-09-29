@@ -606,8 +606,22 @@ function registerDashboard(app) {
     raw.provider = raw.provider || {};
     raw.provider.model = id;
     if (raw.activeProvider && raw.providers?.[raw.activeProvider]) raw.providers[raw.activeProvider].model = id;
+
+    // Re-detect reasoning support for the new model
+    const { detectReasoningVariants } = require('../models/variants');
+    const detected = detectReasoningVariants(id, raw.provider);
+    raw.reasoning = raw.reasoning || {};
+    if (detected.supported) {
+      raw.reasoning.supported = detected.efforts;
+      if (raw.reasoning.default && !detected.efforts.includes(raw.reasoning.default)) {
+        raw.reasoning.default = detected.default || (detected.efforts.includes('high') ? 'high' : detected.efforts[0]);
+      }
+    } else {
+      raw.reasoning.supported = 'unknown';
+    }
+
     writeRawConfig(config, raw);
-    res.json({ ok: true, model: id });
+    res.json({ ok: true, model: id, reasoning: raw.reasoning });
   });
 
   // Switch active provider profile.
@@ -619,8 +633,22 @@ function registerDashboard(app) {
     if (!raw.providers?.[name]) return res.status(404).json({ error: { message: `No provider profile "${name}"`, type: 'not_found' } });
     raw.activeProvider = name;
     raw.provider = { ...(raw.provider || {}), ...raw.providers[name] };
+
+    // Re-detect reasoning support for the provider profile's model
+    const { detectReasoningVariants } = require('../models/variants');
+    const detected = detectReasoningVariants(raw.provider.model, raw.provider);
+    raw.reasoning = raw.reasoning || {};
+    if (detected.supported) {
+      raw.reasoning.supported = detected.efforts;
+      if (raw.reasoning.default && !detected.efforts.includes(raw.reasoning.default)) {
+        raw.reasoning.default = detected.default || (detected.efforts.includes('high') ? 'high' : detected.efforts[0]);
+      }
+    } else {
+      raw.reasoning.supported = 'unknown';
+    }
+
     writeRawConfig(config, raw);
-    res.json({ ok: true, active: name });
+    res.json({ ok: true, active: name, reasoning: raw.reasoning });
   });
 
   // Add / update a provider profile (writes config; key stored separately in .env).
@@ -926,6 +954,7 @@ function registerDashboard(app) {
         model: chosenModel,
         smallModel: req.body?.smallModel,
         modelMeta,
+        supportedEfforts: config.reasoning?.supported,
       });
       res.json({ ok: true, result, status: client.status() });
     } catch (err) {

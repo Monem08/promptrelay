@@ -70,6 +70,7 @@ function configure(opts = {}) {
     baseURL: opts.baseURL,
     model: opts.model,
     modelMeta: opts.modelMeta,
+    supportedEfforts: opts.supportedEfforts,
     name: 'PromptRelay',
     targetPath: opts.targetPath,
   });

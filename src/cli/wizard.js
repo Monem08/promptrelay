@@ -75,6 +75,10 @@ async function providerWizard(rl, current = readConfig()) {
     provider.model = await askRequired(rl, 'Model', current.provider?.model || 'openrouter/auto');
     const key = await ask(rl, `OpenRouter API key (stored locally in ${io.ENV_FILE})`);
     if (key) io.writeEnvValue(provider.apiKeyEnv, key);
+  } else if (providerType === 'opencode-zen') {
+    provider.model = await askRequired(rl, 'Model', current.provider?.model || 'space-bunny-free');
+    const key = await ask(rl, `OpenCode API key (stored locally in ${io.ENV_FILE})`);
+    if (key) io.writeEnvValue(provider.apiKeyEnv, key);
   } else if (providerType === 'ollama-cloud') {
     provider.model = await askRequired(rl, 'Model (e.g. gpt-oss:120b)', current.provider?.model || '');
     const key = await ask(rl, `Ollama API key (stored locally in ${io.ENV_FILE})`);
@@ -102,6 +106,17 @@ async function providerWizard(rl, current = readConfig()) {
 
   const forceModel = await yesNo(rl, 'Always use this configured model?', true);
   provider.forceModel = forceModel;
+
+  // Detect reasoning variants using priority, prompting user if unknown in interactive wizard
+  const { resolveModelReasoning } = require('../models/variants');
+  const reasoningResolution = await resolveModelReasoning(provider.model, provider, { interactive: true, rl });
+  reasoning = {
+    ...(reasoning || {}),
+    supported: reasoningResolution.supported,
+    default: reasoningResolution.default,
+    injectDefault: reasoningResolution.injectDefault ?? reasoning?.injectDefault ?? false,
+    auto: reasoning?.auto ?? false,
+  };
 
   return { provider, reasoning };
 }
@@ -195,6 +210,14 @@ async function offerModelDiscovery(rl, config) {
   if (!rec.model) return;
   if (await yesNo(rl, `Use "${rec.model.id}"?`, true)) {
     config.provider.model = rec.model.id;
+    const { resolveModelReasoning } = require('../models/variants');
+    const reasoningResolution = await resolveModelReasoning(rec.model.id, config.provider, { interactive: true, rl, modelMeta: rec.model });
+    config.reasoning = {
+      ...(config.reasoning || {}),
+      supported: reasoningResolution.supported,
+      default: reasoningResolution.default,
+      injectDefault: reasoningResolution.injectDefault ?? config.reasoning?.injectDefault ?? false,
+    };
     console.log(`   ✅ Model set to ${rec.model.id}`);
   }
 }
@@ -305,6 +328,11 @@ async function setupAuto(options = {}) {
       forceModel: false,
     };
     console.log('  ✅ Detected Anthropic credentials in environment ($ANTHROPIC_API_KEY)');
+  } else if (detectedCreds.find((c) => c.envVar === 'OPENCODE_API_KEY')) {
+    const preset = getPreset('opencode-zen');
+    config.provider = { ...preset.provider, model: config.provider?.model || 'space-bunny-free', forceModel: true };
+    config.reasoning = preset.reasoning;
+    console.log('  ✅ Detected OpenCode Zen credentials in environment ($OPENCODE_API_KEY)');
   } else if (detectedCreds.find((c) => c.envVar === 'OPENAI_API_KEY')) {
     const preset = getPreset('custom-openai');
     config.provider = { ...preset.provider, model: config.provider?.model || 'gpt-4o', apiKeyEnv: 'OPENAI_API_KEY', forceModel: false };
@@ -331,6 +359,15 @@ async function setupAuto(options = {}) {
       console.log('  ℹ️ Configured default OpenRouter profile ($OPENROUTER_API_KEY can be added to ~/.promptrelay/.env)');
     }
   }
+
+  // Resolve reasoning variants for the auto-configured model
+  const { resolveModelReasoning } = require('../models/variants');
+  const reasoningResolution = await resolveModelReasoning(config.provider.model, config.provider, { quiet: true });
+  config.reasoning = {
+    ...(config.reasoning || {}),
+    supported: reasoningResolution.supported,
+    default: reasoningResolution.default,
+  };
 
   // 2. Discover models if possible (best-effort)
   try {

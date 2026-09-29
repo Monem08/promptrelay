@@ -181,9 +181,26 @@ function providerUse(name) {
     return;
   }
   raw.activeProvider = name;
-  raw.provider = { ...(raw.provider || {}), ...raw.providers[name] };
+  const p = raw.providers[name];
+  raw.provider = { ...(raw.provider || {}), ...p };
+
+  // Re-detect reasoning support for the provider profile's model
+  const { detectReasoningVariants } = require('../models/variants');
+  const detected = detectReasoningVariants(p.model, p);
+  raw.reasoning = raw.reasoning || {};
+  if (detected.supported) {
+    raw.reasoning.supported = detected.efforts;
+    if (raw.reasoning.default && !detected.efforts.includes(raw.reasoning.default)) {
+      const fallback = detected.default || (detected.efforts.includes('high') ? 'high' : detected.efforts[0]);
+      console.log(`ℹ Notice: Model "${p.model}" does not support reasoning effort "${raw.reasoning.default}". Falling back to "${fallback}".`);
+      raw.reasoning.default = fallback;
+    }
+  } else {
+    raw.reasoning.supported = 'unknown';
+  }
+
   saveRawConfig(raw);
-  console.log(`✅ Active provider is now "${name}" → ${raw.providers[name].model}`);
+  console.log(`✅ Active provider is now "${name}" → ${p.model}`);
 }
 
 function providerRemove(name) {
@@ -335,6 +352,22 @@ function modelUse(id) {
   if (raw.activeProvider && raw.providers?.[raw.activeProvider]) {
     raw.providers[raw.activeProvider].model = id;
   }
+
+  // Re-detect reasoning support for the new model
+  const { detectReasoningVariants } = require('../models/variants');
+  const detected = detectReasoningVariants(id, raw.provider);
+  raw.reasoning = raw.reasoning || {};
+  if (detected.supported) {
+    raw.reasoning.supported = detected.efforts;
+    if (raw.reasoning.default && !detected.efforts.includes(raw.reasoning.default)) {
+      const fallback = detected.default || (detected.efforts.includes('high') ? 'high' : detected.efforts[0]);
+      console.log(`ℹ Notice: Model "${id}" does not support reasoning effort "${raw.reasoning.default}". Falling back to "${fallback}".`);
+      raw.reasoning.default = fallback;
+    }
+  } else {
+    raw.reasoning.supported = 'unknown';
+  }
+
   saveRawConfig(raw);
   console.log(`✅ Active model set to "${id}".`);
 }
@@ -372,6 +405,17 @@ function reasoningSet(level) {
     console.error(`Invalid reasoning level "${level}". Run \`promptrelay reasoning list\`.`);
     process.exitCode = 1;
     return;
+  }
+  const supported = raw.reasoning.supported;
+  if (Array.isArray(supported) && supported.length > 0) {
+    if (!supported.includes(normalized)) {
+      console.error(`❌ Reasoning level "${normalized}" is not supported by active model "${raw.provider?.model || 'unknown'}".`);
+      console.error(`   Supported levels: ${supported.join(', ')}`);
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    console.log(`ℹ Notice: Active model reasoning support is unknown; setting default to "${normalized}".`);
   }
   raw.reasoning.auto = false;
   raw.reasoning.default = normalized;
@@ -436,7 +480,12 @@ async function opencodeSetup() {
     }
   } catch {}
 
-  const res = opencode.setupOpenCode({ baseURL, model: config.provider.model, modelMeta });
+  const res = opencode.setupOpenCode({
+    baseURL,
+    model: config.provider.model,
+    modelMeta,
+    supportedEfforts: config.reasoning?.supported,
+  });
   console.log('');
   console.log(res.created ? '✅ OpenCode config created.' : '✅ PromptRelay provider merged into OpenCode config.');
   console.log(`   Path   : ${res.path}`);
@@ -546,7 +595,13 @@ async function clientSetup(id, { model, smallModel } = {}) {
 
   let res;
   try {
-    res = client.configure({ baseURL, model: chosenModel, smallModel, modelMeta });
+    res = client.configure({
+      baseURL,
+      model: chosenModel,
+      smallModel,
+      modelMeta,
+      supportedEfforts: config.reasoning?.supported,
+    });
   } catch (error) {
     console.error(`❌ ${error.message}`);
     process.exitCode = 1;

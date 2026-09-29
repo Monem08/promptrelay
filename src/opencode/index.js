@@ -66,7 +66,7 @@ function backupFile(file) {
  * @param {object} [params.modelMeta] - normalized model metadata for verified limits
  * @param {string} [params.name]
  */
-function buildProviderBlock({ baseURL, model, modelMeta, name = 'PromptRelay' }) {
+function buildProviderBlock({ baseURL, model, modelMeta, supportedEfforts, name = 'PromptRelay' }) {
   const modelEntry = {};
   const limit = {};
   if (modelMeta) {
@@ -77,6 +77,32 @@ function buildProviderBlock({ baseURL, model, modelMeta, name = 'PromptRelay' })
   if (Object.keys(limit).length) entry.limit = limit;
   // Only include a name; never fabricate limits when unknown.
   entry.name = modelMeta && modelMeta.name && modelMeta.name !== UNKNOWN ? modelMeta.name : model;
+
+  let efforts = null;
+  if (Array.isArray(supportedEfforts) && supportedEfforts.length > 0 && supportedEfforts[0] !== 'unknown') {
+    efforts = supportedEfforts;
+  } else if (supportedEfforts === 'unknown' || (Array.isArray(supportedEfforts) && supportedEfforts.length === 0)) {
+    efforts = null;
+  } else if (modelMeta && Array.isArray(modelMeta.reasoningEfforts) && modelMeta.reasoningEfforts.length > 0 && modelMeta.reasoningEfforts[0] !== 'unknown') {
+    efforts = modelMeta.reasoningEfforts;
+  } else if (model) {
+    try {
+      const { detectReasoningVariants } = require('../models/variants');
+      const detected = detectReasoningVariants(model, null, { modelMeta });
+      if (detected.supported && Array.isArray(detected.efforts) && detected.efforts.length > 0) {
+        efforts = detected.efforts;
+      }
+    } catch {}
+  }
+
+  if (Array.isArray(efforts) && efforts.length > 0) {
+    entry.variants = {};
+    for (const v of efforts) {
+      entry.variants[v] = {
+        reasoningEffort: v,
+      };
+    }
+  }
 
   modelEntry[model] = entry;
 

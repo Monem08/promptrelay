@@ -292,6 +292,26 @@ const PRESETS = {
     needsKey: true,
   },
 
+  'opencode-zen': {
+    id: 'opencode-zen',
+    label: 'OpenCode Zen — free models & coding agents',
+    transport: 'openai-compatible',
+    template: () => ({
+      name: 'OpenCode Zen',
+      transport: 'openai-compatible',
+      baseURL: 'https://opencode.ai/zen/v1',
+      model: 'space-bunny-free',
+      forceModel: true,
+      apiKeyEnv: 'OPENCODE_API_KEY',
+      auth: { type: 'bearer' },
+      modelsPath: 'models',
+      chatPath: 'chat/completions',
+      headers: {},
+    }),
+    reasoning: { supported: ['low', 'medium', 'high', 'xhigh'], default: 'high', injectDefault: false, auto: false },
+    needsKey: true,
+  },
+
   'custom-openai': {
     id: 'custom-openai',
     label: 'Custom OpenAI-compatible provider',

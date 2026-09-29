@@ -5,7 +5,7 @@ const { normalizeReasoning, toOllamaThink, applyOpenAIReasoning } = require('../
 test('reasoning aliases normalize', () => {
   assert.equal(normalizeReasoning('fast'), 'none');
   assert.equal(normalizeReasoning('thinking'), 'high');
-  assert.equal(normalizeReasoning('xhigh'), 'max');
+  assert.equal(normalizeReasoning('xhigh'), 'xhigh');
 });
 
 test('none becomes false for Ollama native', () => {

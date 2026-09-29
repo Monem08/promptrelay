@@ -2,6 +2,27 @@
 
 All notable changes to PromptRelay will be documented here.
 
+## 1.3.0 - 2026-09-29
+
+### Added
+
+- **OpenCode Zen & Space Bunny Free Support**:
+  - Built-in provider preset `opencode-zen` targeting `https://opencode.ai/zen/v1` and `space-bunny-free`.
+  - Automatic detection and masking of `OPENCODE_API_KEY` credentials.
+  - Full support for `xhigh` reasoning effort across OpenAI-compatible providers, CLI commands, and dashboard.
+  - Automatic priority-based reasoning variant detection (provider metadata -> discovery capabilities -> API metadata -> capability cache -> verified compatibility map -> interactive fallback -> unknown).
+  - OpenCode provider block generation with `variants` mapping (`low`, `medium`, `high`, `xhigh`).
+  - Example provider configuration in `examples/providers/opencode-zen.json`.
+
+### Fixed
+
+- **Scoped System Prompt Validation**:
+  - Fixed false HTTP 503 errors when `promptScopes.opencode` is configured with a custom prompt while the global prompt file remains at placeholder.
+  - Evaluates client-specific effective prompt mode (`scopes.modeForScope(clientId, config)`) instead of global mode.
+- **Reasoning Distinction**:
+  - Prevents global collapse of `xhigh` to `max` or `high`; preserves `xhigh` and `max` as distinct concepts across transports.
+  - Distinct Anthropic Extended Thinking token budget allocation (`xhigh: 16000`, `max: 32000`).
+
 ## 1.2.0 - 2026-09-11
 
 ### Added

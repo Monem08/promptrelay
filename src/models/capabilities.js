@@ -95,7 +95,8 @@ function fromOpenRouter(raw, providerName) {
  * Extract from a bare OpenAI /v1/models entry (very little metadata).
  */
 function fromOpenAIList(raw, providerName) {
-  return createModel({
+  const { extractReasoningEfforts } = require('./variants');
+  const model = createModel({
     id: raw.id || UNKNOWN,
     name: raw.id || UNKNOWN,
     provider: providerName || UNKNOWN,
@@ -103,6 +104,15 @@ function fromOpenAIList(raw, providerName) {
     source: 'openai-list',
     verifiedAt: new Date().toISOString(),
   });
+
+  const rawEfforts = extractReasoningEfforts(raw);
+  if (rawEfforts) {
+    model.reasoning = true;
+    model.reasoningEfforts = rawEfforts;
+    model.source = 'provider-metadata';
+  }
+
+  return model;
 }
 
 /**

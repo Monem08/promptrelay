@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const { loadConfig, validateConfig, safeConfig, collectSecrets } = require('../config');
-const { ensurePromptFile, loadPrompt, promptConfigured } = require('../prompts');
+const { ensurePromptFile, loadPrompt, promptConfigured, scopes } = require('../prompts');
 const { dispatchChat, dispatchModels } = require('../adapters');
 const { handleMessages } = require('./messages');
 const { registerDashboard } = require('./dashboard');
@@ -204,10 +204,14 @@ function createApp() {
       });
     }
 
-    if (config.prompt.mode !== 'passthrough' && !promptConfigured(config)) {
+    const clientId = routing.detectClient(req);
+    const effectiveMode = scopes.modeForScope(clientId, config);
+
+    if (effectiveMode !== 'passthrough' && !promptConfigured(config, clientId)) {
+      const promptFile = scopes.promptFileForScope(clientId, config);
       return res.status(503).json({
         error: {
-          message: `Custom instruction is not configured. Open ${config.paths.promptFile} and replace ${config.prompt.placeholder}`,
+          message: `Custom instruction is not configured. Open ${promptFile} and replace ${config.prompt.placeholder}`,
           type: 'promptrelay_prompt_not_configured',
         },
       });
