@@ -168,6 +168,7 @@ function safeConfig(config) {
       apiKeyConfigured: Boolean(config.provider.apiKey),
       apiKeyMasked: config.provider.apiKey ? maskSecret(config.provider.apiKey) : '(not set)',
       authType: config.provider.auth?.type || 'bearer',
+      zenFreeTier: require('../providers/zen-free-tier').status(config),
     },
     reasoning: config.reasoning,
     fallback: config.fallback,

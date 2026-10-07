@@ -5,6 +5,7 @@ const http = require('./http');
 const presets = require('./presets');
 const detect = require('./detect');
 const health = require('./health');
+const zenFreeTier = require('./zen-free-tier');
 
 /**
  * Provider registry helpers. Named provider profiles live in config.providers.
@@ -54,6 +55,7 @@ function setActiveProvider(config, name) {
 module.exports = {
   ...urls,
   ...http,
+  zenFreeTier,
   presets,
   listPresets: presets.listPresets,
   getPreset: presets.getPreset,

@@ -2,6 +2,26 @@
 
 All notable changes to PromptRelay will be documented here.
 
+## Unreleased
+
+### Added
+
+- **OpenCode Zen free tier for any client** (`src/providers/zen-free-tier.js`):
+  - New opt-in `provider.zenFreeTier` block. When enabled, PromptRelay sends the `opencode/<version>` User-Agent and a stable per-client `x-opencode-session` header — the only two things the Zen relay checks before serving its free models.
+  - Session ids are minted locally (`ses_` + 26 hex) and cached per detected client (`X-PromptRelay-Client`, else peer IP) so the relay's prompt cache stays warm across a conversation. Bounded at 512 entries with LRU eviction and a 6-hour idle TTL; ids carry no account or conversation content and are never logged.
+  - **No account or API key required.** Anonymous access reaches the free tier; `$OPENCODE_API_KEY` is now optional and only switches requests onto your own quota (BYOK). The `opencode-zen` preset is marked `needsKey: false` and the wizard no longer requires a key.
+  - Request bodies are passed through unmodified — tools, streaming, and reasoning are untouched.
+  - Wired through the existing `providerHeaders()` chokepoint, so every egress path (OpenAI-compatible, Anthropic ingress via IR, model discovery, health checks) is covered without duplicating logic.
+  - Off by default and scoped per provider; no other provider's wire format changes.
+  - New `examples/providers/opencode-zen-anonymous.json` (keyless) alongside the updated `opencode-zen.json`.
+  - `zenFreeTier` diagnostics on `/health` (enabled state, User-Agent, session counts — never the ids themselves).
+  - 37 new tests in `test/zen-free-tier.test.js` covering header construction, session stability and eviction, operator override precedence, config validation, preset opt-in isolation, and gateway end-to-end behaviour against a relay stub that rejects non-OpenCode requests.
+
+### Changed
+
+- `providerHeaders(config)` accepts an optional `{ clientId, ip }` context; `requestContext(req)` derives it from an Express request. All existing call sites keep working unchanged.
+- `ir/upstream.js` `buildUpstream()` takes an optional request so the Anthropic ingress keeps per-client session identity.
+
 ## 1.3.0 - 2026-09-29
 
 ### Added

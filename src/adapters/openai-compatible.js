@@ -4,6 +4,7 @@ const { applyPromptPolicy } = require('../prompts');
 const { applyOpenAIReasoning } = require('../reasoning');
 const {
   providerHeaders,
+  requestContext,
   resolveModel,
   createAbortController,
   setUpstreamContentType,
@@ -19,7 +20,7 @@ async function models(req, res, config) {
   try {
     const upstream = await fetchWithRetry(
       joinURL(config.provider.baseURL, modelsPath),
-      { headers: providerHeaders(config), signal: controller.signal },
+      { headers: providerHeaders(config, requestContext(req)), signal: controller.signal },
       config.retry,
       { onRetry: (info) => logger.warn(`↻ retry models (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error) },
     );
@@ -77,7 +78,7 @@ async function chat(req, res, config, options = {}) {
       url,
       {
         method: 'POST',
-        headers: providerHeaders(config),
+        headers: providerHeaders(config, { ...requestContext(req), clientId: options.clientId || '' }),
         body: JSON.stringify(upstreamBody),
         signal: controller.signal,
       },

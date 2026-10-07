@@ -41,6 +41,9 @@ const DEFAULTS = {
       'HTTP-Referer': 'https://github.com/Monem08/promptrelay',
       'X-Title': 'PromptRelay',
     },
+    // OpenCode Zen free-tier header injection. Off by default; the
+    // `opencode-zen` preset turns it on. See providers/zen-free-tier.js.
+    zenFreeTier: { enabled: false },
   },
   // Named provider profiles (registry). Optional; the active provider always
   // lives in `provider` for backward compatibility.

@@ -49,6 +49,22 @@ function validateConfig(config) {
     problems.push('provider.headers must be an object of header name/value pairs');
   }
 
+  const zen = provider.zenFreeTier;
+  if (zen !== undefined && typeof zen !== 'boolean' && (typeof zen !== 'object' || Array.isArray(zen))) {
+    problems.push('provider.zenFreeTier must be a boolean or an options object');
+  }
+  if (zen && typeof zen === 'object') {
+    if (zen.enabled !== undefined && typeof zen.enabled !== 'boolean') {
+      problems.push('provider.zenFreeTier.enabled must be a boolean');
+    }
+    if (zen.injectSession !== undefined && typeof zen.injectSession !== 'boolean') {
+      problems.push('provider.zenFreeTier.injectSession must be a boolean');
+    }
+    if (zen.userAgent !== undefined && (typeof zen.userAgent !== 'string' || !zen.userAgent.trim())) {
+      problems.push('provider.zenFreeTier.userAgent must be a non-empty string when set');
+    }
+  }
+
   const reasoning = config.reasoning || {};
   if (reasoning.default && !REASONING_LEVELS.includes(String(reasoning.default).toLowerCase())) {
     // Not fatal: aliases resolve elsewhere. Only warn on clearly invalid values below.

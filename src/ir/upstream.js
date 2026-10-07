@@ -20,7 +20,7 @@
  */
 
 const { fetchWithRetry } = require('../adapters/retry');
-const { providerHeaders, resolveModel, joinURL } = require('../providers/http');
+const { providerHeaders, requestContext, resolveModel, joinURL } = require('../providers/http');
 const oai = require('./openai');
 const anth = require('./anthropic');
 const { iterSSE } = require('./sse');
@@ -39,23 +39,24 @@ function transportOf(config) {
 }
 
 /** Build the upstream URL + headers + serialized body for the given IR. */
-function buildUpstream(ir, config) {
+function buildUpstream(ir, config, req = null) {
   const transport = transportOf(config);
   const model = resolveModel(ir.model, config);
   const irForProvider = { ...ir, model };
+  const context = requestContext(req);
 
   if (transport === 'openai-compatible') {
     const url = joinURL(config.provider.baseURL, config.provider.chatPath || 'chat/completions');
     const body = oai.irToOpenAIRequest(irForProvider, config);
     body.model = model;
-    return { transport, url, headers: providerHeaders(config), body };
+    return { transport, url, headers: providerHeaders(config, context), body };
   }
 
   if (transport === 'anthropic-native') {
     const url = joinURL(config.provider.baseURL, config.provider.chatPath || '/v1/messages');
     const body = anth.irToAnthropicRequest(irForProvider, config);
     body.model = model;
-    const headers = providerHeaders(config);
+    const headers = providerHeaders(config, context);
     if (!headers['anthropic-version']) headers['anthropic-version'] = anth.ANTHROPIC_VERSION;
     return { transport, url, headers, body };
   }
@@ -79,7 +80,7 @@ async function readError(upstream) {
 function truncate(str, n) { return str && str.length > n ? `${str.slice(0, n)}…` : str; }
 
 async function callProviderNonStream(ir, config, hooks = {}) {
-  const { transport, url, headers, body } = buildUpstream(ir, config);
+  const { transport, url, headers, body } = buildUpstream(ir, config, hooks.req || null);
   const upstream = await fetchWithRetry(
     url,
     { method: 'POST', headers, body: JSON.stringify({ ...body, stream: false }), signal: hooks.signal },
@@ -92,7 +93,7 @@ async function callProviderNonStream(ir, config, hooks = {}) {
 }
 
 async function* callProviderStream(ir, config, hooks = {}) {
-  const { transport, url, headers, body } = buildUpstream(ir, config);
+  const { transport, url, headers, body } = buildUpstream(ir, config, hooks.req || null);
   const upstream = await fetchWithRetry(
     url,
     { method: 'POST', headers, body: JSON.stringify({ ...body, stream: true }), signal: hooks.signal },

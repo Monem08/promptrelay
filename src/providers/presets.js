@@ -307,9 +307,13 @@ const PRESETS = {
       modelsPath: 'models',
       chatPath: 'chat/completions',
       headers: {},
+      // Opt into free-tier header injection (opencode User-Agent + stable
+      // per-client x-opencode-session). Required for the `-free` models;
+      // harmless for paid ones. See providers/zen-free-tier.js.
+      zenFreeTier: { enabled: true },
     }),
     reasoning: { supported: ['low', 'medium', 'high', 'xhigh'], default: 'high', injectDefault: false, auto: false },
-    needsKey: true,
+    needsKey: false,
   },
 
   'custom-openai': {

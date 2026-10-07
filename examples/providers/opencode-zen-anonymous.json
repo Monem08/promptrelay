@@ -13,9 +13,8 @@
     "baseURL": "https://opencode.ai/zen/v1",
     "model": "space-bunny-free",
     "forceModel": true,
-    "apiKeyEnv": "OPENCODE_API_KEY",
     "auth": {
-      "type": "bearer"
+      "type": "none"
     },
     "zenFreeTier": {
       "enabled": true

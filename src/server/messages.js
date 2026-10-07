@@ -66,6 +66,9 @@ async function handleMessages(req, res, config, externalState = null) {
 
   const hooks = {
     signal: controller.signal,
+    // Carried so provider-level header identity (e.g. OpenCode Zen's per-client
+    // session) stays stable across this ingress's requests.
+    req: { ...req, headers: { ...req.headers, 'x-promptrelay-client': clientId } },
     onRetry: (info) => logger.warn(`↻ retry messages (${info.attempt}/${info.maxRetries}) after ${info.delayMs}ms`, info.status ? `status ${info.status}` : info.error),
   };
 

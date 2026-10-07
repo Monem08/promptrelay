@@ -147,7 +147,7 @@ PromptRelay ships with presets for the most common setups:
 | Preset | Transport | Notes |
 | --- | --- | --- |
 | **OpenRouter** | `openai-compatible` | Easiest / recommended. Hundreds of models, rich metadata, free tier. |
-| **OpenCode Zen** | `openai-compatible` | OpenCode Zen endpoint (`space-bunny-free`, `xhigh` reasoning, free tier). |
+| **OpenCode Zen** | `openai-compatible` | OpenCode Zen endpoint (`space-bunny-free`, `xhigh` reasoning). Free tier works with no account — see [OpenCode Zen free tier](#opencode-zen-free-tier). |
 | **Ollama Cloud** | `ollama-native` | Native fast mode against Ollama's hosted API. |
 | **Ollama Local** | `ollama-native` | No API key needed; talks to a local `ollama serve`. |
 | **Custom OpenAI-compatible** | `openai-compatible` | Any endpoint that speaks the OpenAI `/v1/chat/completions` API. |
@@ -164,6 +164,63 @@ promptrelay provider remove <name>  # remove a profile
 ```
 
 Multiple named profiles live under `providers` in the config; `activeProvider` selects which one is live. The legacy single-`provider` block is still fully supported for backward compatibility.
+
+### OpenCode Zen free tier
+
+OpenCode's Zen relay serves its free models (`space-bunny-free`, `mimo-v2.5-free`, `nemotron-*-free`, `big-pickle`, `deepseek-v4-flash-free`, …) only to requests that look like they come from the OpenCode client. Anything else gets:
+
+```
+HTTP 403 {"type":"error","error":{"type":"FreeTierError",
+         "message":"OpenCode's free tier can only be used from within OpenCode"}}
+```
+
+The `opencode-zen` preset handles this for you. It sets `provider.zenFreeTier.enabled`, which makes PromptRelay send the two things the relay actually checks:
+
+| What | Why |
+| --- | --- |
+| `User-Agent: opencode/<version>` | The relay's edge answers with an HTML challenge instead of a JSON error when the UA is absent. |
+| `x-opencode-session: ses_<id>` | Conversation identity. The id is minted locally and kept **stable per client**, so the relay's prompt cache stays warm across a conversation. |
+
+No account and no API key are required. An optional key (`$OPENCODE_API_KEY`) simply moves you onto your own Zen quota instead of the anonymous pool.
+
+```bash
+promptrelay provider add      # pick "OpenCode Zen"
+promptrelay                   # done — free models are reachable
+```
+
+The request body is **not** modified. Tools, streaming, and reasoning all pass through untouched.
+
+<details>
+<summary>Configuration reference</summary>
+
+```jsonc
+{
+  "provider": {
+    "name": "OpenCode Zen",
+    "transport": "openai-compatible",
+    "baseURL": "https://opencode.ai/zen/v1",
+    "model": "space-bunny-free",
+    "forceModel": true,
+    "auth": { "type": "none" },        // anonymous; use "bearer" + a key for BYOK
+    "zenFreeTier": {
+      "enabled": true,                 // opt in (this is what the preset sets)
+      "userAgent": "opencode/1.18.34", // override to track a new OpenCode release
+      "injectSession": true            // set false to omit x-opencode-session
+    }
+  }
+}
+```
+
+Ready-made configs live in [`examples/providers/`](examples/providers/): `opencode-zen-anonymous.json` (no key) and `opencode-zen.json` (key optional).
+
+Notes:
+
+- Off by default and per-provider. No other provider's wire format changes.
+- An explicit `User-Agent` in `provider.headers` always wins over the injected one.
+- Session ids are cached in memory per detected client (`X-PromptRelay-Client`, else peer IP), bounded at 512 entries with LRU eviction and a 6-hour idle TTL. They carry no account or conversation content and are never logged; `/health` reports only counts.
+- `none` and `ultra` reasoning effort are rejected by the relay itself — everything from `minimal` through `max` is accepted.
+
+</details>
 
 ### Base URL normalization
 

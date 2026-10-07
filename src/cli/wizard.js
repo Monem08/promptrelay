@@ -77,7 +77,10 @@ async function providerWizard(rl, current = readConfig()) {
     if (key) io.writeEnvValue(provider.apiKeyEnv, key);
   } else if (providerType === 'opencode-zen') {
     provider.model = await askRequired(rl, 'Model', current.provider?.model || 'space-bunny-free');
-    const key = await ask(rl, `OpenCode API key (stored locally in ${io.ENV_FILE})`);
+    // The free `-free` models work without an account. A key is optional and
+    // only switches requests onto your own Zen quota (BYOK), so this must not
+    // be a required prompt.
+    const key = await ask(rl, 'OpenCode API key — press Enter to skip (anonymous free tier)');
     if (key) io.writeEnvValue(provider.apiKeyEnv, key);
   } else if (providerType === 'ollama-cloud') {
     provider.model = await askRequired(rl, 'Model (e.g. gpt-oss:120b)', current.provider?.model || '');
