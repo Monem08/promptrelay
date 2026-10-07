@@ -6,6 +6,20 @@ All notable changes to PromptRelay will be documented here.
 
 ### Added
 
+- **Model metadata: detect, propagate, ask** (`src/models/context-presets.js`):
+  - `configSync` automation job now resolves the active model's metadata once and hands `modelMeta` + `supportedEfforts` to every client adapter. Previously it passed only `{ baseURL, model }`, so background sync silently dropped the metadata the interactive path already wrote.
+  - Hermes client adapter writes verified limits into `~/.hermes/config.yaml`: `model.context_length`, `model.max_output_tokens`, `agent.reasoning_overrides`. This is what stops Hermes falling back to its hard-coded 256K default on an endpoint that publishes no limits.
+  - `promptrelay client setup` asks for context window, output limit, and reasoning ladder when detection came back empty and the terminal is interactive. Offers the windows that occur in practice (8K … 1M) with the trade-off spelled out, a free-form custom entry that accepts `65536` / `64K` / `1M`, and an explicit "leave unknown".
+  - User answers are stored with `user-selection` provenance, distinct from `provider-metadata`, so a measurement is never confused with a decision.
+  - `verifiedMetadata()` writes a key only when the value was observed. `'unknown'` is never written — a wrong number disables the client's own fallback and mis-sizes its auto-compression.
+  - `resolveMetadataPassive()` is the non-interactive path for scheduled jobs: verified values pass through, everything else stays unknown. A scheduled task never prompts and never invents a number.
+  - `describeMetadata()` on the Hermes adapter; `doctor` now reports per-client context/output/reasoning state, distinguishing "set correctly" from "left unknown on purpose".
+  - `updateTopLevelBlock()` in `clients/yaml-edit.js` — comment-preserving upsert for metadata keys, reusing the existing top-level block scanner.
+  - `consumesModelMetadata` flag on the client adapters so only clients that actually read model limits are prompted.
+  - 30 new tests in `test/model-metadata.test.js`.
+
+### Added (earlier in this release)
+
 - **OpenCode Zen free tier for any client** (`src/providers/zen-free-tier.js`):
   - New opt-in `provider.zenFreeTier` block. When enabled, PromptRelay sends the `opencode/<version>` User-Agent and a stable per-client `x-opencode-session` header — the only two things the Zen relay checks before serving its free models.
   - Session ids are minted locally (`ses_` + 26 hex) and cached per detected client (`X-PromptRelay-Client`, else peer IP) so the relay's prompt cache stays warm across a conversation. Bounded at 512 entries with LRU eviction and a 6-hour idle TTL; ids carry no account or conversation content and are never logged.

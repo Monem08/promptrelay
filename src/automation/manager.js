@@ -114,18 +114,50 @@ class AutomationManager {
         handler: async (config) => {
           const registry = require('../clients/registry');
           const detected = registry.detectAll().filter((c) => c.installed || c.found);
+
+          // Resolve the active model's metadata ONCE and hand it to every adapter,
+          // so each client config carries the same verified limits. Passive
+          // resolution: a scheduled job must never prompt and must never invent a
+          // value — anything the provider does not publish stays 'unknown' and the
+          // client keeps its own fallback.
+          let modelMeta = null;
+          let metadataError = null;
+          try {
+            const { discoverModels } = require('../models');
+            const result = await discoverModels(config, {});
+            if (!result.error) modelMeta = result.models.find((m) => m.id === config.provider.model) || null;
+            else metadataError = result.error;
+          } catch (error) {
+            metadataError = error.message;
+          }
+
+          const supportedEfforts = Array.isArray(config.reasoning?.supported)
+            ? config.reasoning.supported
+            : config.reasoning?.supported;
+
           const synced = [];
           for (const c of detected) {
             if (c.configured) {
               const adapter = registry.getClient(c.id);
               if (adapter && typeof adapter.configure === 'function') {
                 const baseURL = adapter.defaultBaseURL(config.server);
-                const res = adapter.configure({ baseURL, model: config.provider.model });
+                const res = adapter.configure({
+                  baseURL,
+                  model: config.provider.model,
+                  modelMeta,
+                  supportedEfforts,
+                });
                 synced.push({ id: c.id, ...res });
               }
             }
           }
-          return { syncedCount: synced.length, clients: synced };
+          return {
+            syncedCount: synced.length,
+            model: config.provider.model,
+            metadataSource: modelMeta?.source || (metadataError ? 'unavailable' : 'unknown'),
+            metadataError,
+            clients: synced,
+          };
         },
       },
       {

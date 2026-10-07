@@ -90,4 +90,8 @@ function remove() {
   };
 }
 
-module.exports = { id: ID, label: LABEL, protocol: PROTOCOL, defaultBaseURL, detect, status, configure, remove };
+module.exports = {
+  id: ID, label: LABEL, protocol: PROTOCOL,
+  consumesModelMetadata: true,
+  defaultBaseURL, detect, status, configure, remove,
+};

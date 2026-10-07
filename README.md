@@ -213,6 +213,55 @@ The request body is **not** modified. Tools, streaming, and reasoning all pass t
 
 Ready-made configs live in [`examples/providers/`](examples/providers/): `opencode-zen-anonymous.json` (no key) and `opencode-zen.json` (key optional).
 
+#### When the provider publishes no limits
+
+The Zen free models are the motivating case for the next section: **Zen publishes no context window, no output limit, and no reasoning ladder for any of its 45 models.** `/v1/models` returns bare `{ id, name }` entries. That is not a PromptRelay bug, and it is exactly the situation the metadata rules below exist for.
+
+### Model metadata: detect, propagate, ask
+
+PromptRelay never fabricates a context window, an output limit, or a reasoning ladder. The flow is:
+
+**1. Detect.** `/v1/models` is read and normalized. Providers differ wildly in what they publish — OpenRouter returns `context_length`, pricing, `supported_parameters`; a bare OpenAI-compatible endpoint returns `id` and `owned_by`. Anything absent becomes `'unknown'`, and stays that way.
+
+**2. Propagate.** Verified values are mirrored into the client configs, so nobody retypes them:
+
+| Client | What gets written |
+| --- | --- |
+| **OpenCode** | `limit.context`, `limit.output`, and a `variants` map of reasoning levels |
+| **Hermes** | `model.context_length`, `model.max_output_tokens`, `agent.reasoning_overrides` |
+| **Claude Code** | nothing — it only takes `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` |
+
+This runs on the `configSync` automation job as well as on manual setup, so a client keeps its own limits in step with the active model without anyone touching a config file.
+
+Writing a wrong number is worse than writing none: it disables the client's own fallback and mis-sizes its auto-compression. So an `'unknown'` value is **never** written, and the client keeps whatever default it ships with.
+
+**3. Ask, when interactive.** When detection came back empty *and* you are on a terminal, `promptrelay client setup` offers the values that actually occur in practice plus a free-form entry:
+
+```
+Context window for space-bunny-free is UNKNOWN — the provider publishes no limits.
+Pick the closest match, type your own, or leave it unknown:
+   1) 8K     — small local models, some older embedding-serving models
+   2) 16K    — older GPT-3.5/4 era models
+   3) 32K    — GPT-4 class, many mid-size OSS models
+   4) 64K    — Llama-3 70B, Qwen2.5, most local 7B–14B quants
+   5) 128K   — Llama-3.1/3.3, Qwen2.5-72B, Mistral Large
+   6) 200K   — Claude Sonnet/Opus, Gemini 1.5 Pro
+   7) 256K   — GPT-4o, Gemini 1.5/2.x Flash
+   8) 1M     — Gemini 1.5 Pro, GPT-4.1, Kimi long-context variants
+   9) Custom value — type any number (32K, 100000, 1M…)
+  10) Leave unknown (keep the client's own fallback)
+```
+
+Answers are recorded with `user-selection` provenance, which is deliberately distinct from `provider-metadata` so a later reader can tell a measurement from a decision. Output limits and reasoning ladders get the same treatment.
+
+Background jobs never prompt and never guess — `resolveMetadataPassive()` is their path, and it is the same code that keeps `'unknown'` from ever reaching a config file.
+
+Check what a client currently has:
+
+```bash
+promptrelay doctor        # reports per-client context/output/reasoning state
+```
+
 Notes:
 
 - Off by default and per-provider. No other provider's wire format changes.

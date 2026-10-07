@@ -109,6 +109,47 @@ function updateModelInYaml(rawYaml, modelConfig) {
  * @param {string} rawYaml
  * @returns {{ text: string, removed: boolean }}
  */
+/**
+ * Update or insert a top-level key block in YAML content while preserving
+ * comments. Used for metadata keys PromptRelay owns (`agent:`, ...) so an
+ * operator's hand-written comments elsewhere in the file survive untouched.
+ *
+ * An empty `values` object is a no-op — the raw text comes back unchanged, so a
+ * caller can pass through without special-casing "nothing was verified".
+ *
+ * @param {string} rawYaml
+ * @param {string} key - top-level key to upsert
+ * @param {object} values - keys to write under it
+ * @returns {string}
+ */
+function updateTopLevelBlock(rawYaml, key, values) {
+  const entries = values && typeof values === 'object' ? Object.entries(values) : [];
+  if (!entries.length) return rawYaml;
+
+  const formatted = yaml.dump({ [key]: Object.fromEntries(entries) }, { lineWidth: 120, noRefs: true }).trim();
+
+  if (!rawYaml || !rawYaml.trim()) return `${formatted}\n`;
+
+  const lines = rawYaml.split(/\r?\n/);
+  const range = findTopLevelKeyRange(lines, key);
+
+  if (range) {
+    const before = lines.slice(0, range.start);
+    const after = lines.slice(range.end + 1);
+    const result = [...before, formatted, ...after].join('\n');
+    return result.endsWith('\n') ? result : `${result}\n`;
+  }
+
+  const trimmed = rawYaml.trimEnd();
+  return `${trimmed}\n\n${formatted}\n`;
+}
+
+/**
+ * Remove the model: block from YAML content while preserving comments.
+ *
+ * @param {string} rawYaml
+ * @returns {{ text: string, removed: boolean }}
+ */
 function removeModelFromYaml(rawYaml) {
   if (!rawYaml || !rawYaml.trim()) return { text: rawYaml, removed: false };
 
@@ -124,6 +165,7 @@ function removeModelFromYaml(rawYaml) {
 
 module.exports = {
   updateModelInYaml,
+  updateTopLevelBlock,
   removeModelFromYaml,
   findTopLevelKeyRange,
 };

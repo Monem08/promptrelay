@@ -26,7 +26,8 @@ const os = require('os');
 const path = require('path');
 const yaml = require('js-yaml');
 const { backupFile, upsertEnvValue, removeEnvValue } = require('./fsutil');
-const { updateModelInYaml, removeModelFromYaml } = require('./yaml-edit');
+const { updateModelInYaml, updateTopLevelBlock, removeModelFromYaml } = require('./yaml-edit');
+const { UNKNOWN } = require('../models/schema');
 
 const ID = 'hermes';
 const LABEL = 'Hermes';
@@ -111,9 +112,64 @@ function status() {
 }
 
 /**
+ * Verified-only metadata to mirror into Hermes' config.
+ *
+ * Hermes reads `model.context_length` as a hard pin and otherwise falls back to
+ * its own 256K default when a provider publishes no limits. Writing a verified
+ * window here is what stops an unknown-context model from silently guessing.
+ *
+ * Rule, matching src/opencode/index.js: write a key ONLY when the value was
+ * actually observed. `'unknown'` is never written — a wrong number is worse
+ * than no number, because it disables Hermes' own fallback and mis-sizes its
+ * auto-compression. `writeMetadata: false` opts out entirely.
+ *
+ * @param {object} [modelMeta]      normalized model record from models/discovery
+ * @param {string|string[]} [supportedEfforts]
+ * @param {boolean} [writeMetadata=true]
+ * @returns {{ model: object, agent: object, skipped: string[] }}
+ */
+function verifiedMetadata(modelMeta, supportedEfforts, writeMetadata = true) {
+  const skipped = [];
+  const model = {};
+  const agent = {};
+
+  if (writeMetadata) {
+    const ctx = modelMeta?.contextWindow;
+    if (typeof ctx === 'number' && Number.isFinite(ctx) && ctx > 0) {
+      model.context_length = ctx;
+    } else {
+      skipped.push('context_length');
+    }
+
+    const out = modelMeta?.maxOutputTokens;
+    if (typeof out === 'number' && Number.isFinite(out) && out > 0) {
+      model.max_output_tokens = out;
+    }
+
+    const efforts = Array.isArray(supportedEfforts) ? supportedEfforts
+      : (supportedEfforts === UNKNOWN ? [] : []);
+    const levels = efforts.filter((e) => e && e !== UNKNOWN);
+    if (levels.length) {
+      // Hermes keeps its own high default; only write a list it can act on.
+      agent.reasoning_overrides = { [modelMeta?.id || '']: levels[levels.length - 1] };
+      if (!agent.reasoning_overrides[modelMeta?.id || '']) delete agent.reasoning_overrides;
+    } else {
+      skipped.push('reasoning_effort');
+    }
+  } else {
+    skipped.push('metadata(writeMetadata=false)');
+  }
+
+  return { model, agent, skipped };
+}
+
+/**
  * @param {object} opts
  * @param {string} opts.baseURL   PromptRelay base URL (…/v1)
  * @param {string} opts.model     model id
+ * @param {object} [opts.modelMeta]     normalized model metadata (verified values only)
+ * @param {string|string[]} [opts.supportedEfforts]
+ * @param {boolean} [opts.writeMetadata=true]
  * @param {string} [opts.keyVar]  env var name for the api key reference
  * @param {string} [opts.targetConfig] override config path (testing)
  * @param {string} [opts.targetEnv] override .env path (testing)
@@ -137,7 +193,13 @@ function configure(opts = {}) {
     api_key: `\${${keyVar}}`,
   };
 
-  const nextYaml = updateModelInYaml(raw, modelConfig);
+  const { model: modelMetaBlock, agent: agentBlock, skipped } =
+    verifiedMetadata(opts.modelMeta, opts.supportedEfforts, opts.writeMetadata !== false);
+
+  let nextYaml = updateModelInYaml(raw, { ...modelConfig, ...modelMetaBlock });
+  if (Object.keys(agentBlock).length) {
+    nextYaml = updateTopLevelBlock(nextYaml, 'agent', agentBlock);
+  }
 
   const writeResult = safeWriteSync({
     filePath: file,
@@ -158,7 +220,44 @@ function configure(opts = {}) {
   // Write a LOCAL placeholder secret into .env — never an upstream provider key.
   upsertEnvValue(env, keyVar, LOCAL_KEY_VALUE);
 
-  return { id: ID, path: file, envPath: env, backupPath: writeResult.backupPath || backupPath, created, keyVar };
+  return {
+    id: ID,
+    path: file,
+    envPath: env,
+    backupPath: writeResult.backupPath || backupPath,
+    created,
+    keyVar,
+    metadata: {
+      written: Object.keys(modelMetaBlock),
+      skipped,
+    },
+  };
+}
+
+/**
+ * Report which model limits are currently pinned in Hermes' config.
+ * Read-only: used by `doctor` to tell "set correctly" apart from "unknown".
+ * @param {{ targetConfig?: string }} [opts]
+ */
+function describeMetadata(opts = {}) {
+  const file = opts.targetConfig || configPath();
+  const out = { contextLength: 'unknown', maxOutputTokens: 'unknown', reasoningEffort: 'unknown', readable: false };
+  if (!fs.existsSync(file)) return out;
+  try {
+    const cfg = readYaml(file);
+    const model = cfg.model || {};
+    const agent = cfg.agent || {};
+    const num = (v) => (typeof v === 'number' ? v : 'unknown');
+    out.contextLength = num(model.context_length);
+    out.maxOutputTokens = num(model.max_output_tokens);
+    const eff = agent.reasoning_effort
+      ?? (agent.reasoning_overrides && Object.values(agent.reasoning_overrides)[0]);
+    out.reasoningEffort = typeof eff === 'string' && eff ? eff : 'unknown';
+    out.readable = true;
+  } catch {
+    /* unreadable config stays unknown */
+  }
+  return out;
 }
 
 function remove(opts = {}) {
@@ -180,14 +279,18 @@ module.exports = {
   id: ID,
   label: LABEL,
   protocol: PROTOCOL,
+  // Reads model.context_length / max_output_tokens / reasoning limits from its config.
+  consumesModelMetadata: true,
   LOCAL_KEY_VALUE,
   DEFAULT_KEY_VAR,
+  verifiedMetadata,
   configPath,
   envPath,
   defaultBaseURL,
   normalizeBaseURL,
   detect,
   status,
+  describeMetadata,
   configure,
   remove,
 };

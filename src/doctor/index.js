@@ -109,9 +109,28 @@ function checkCredentials(config) {
 
 function checkClients() {
   const statuses = registry.statusAll();
+
+  // Surface, per client, whether the model metadata actually landed in that
+  // client's config. A client pinned to a default because the provider stayed
+  // silent looks identical to a fully-configured one otherwise — this is the
+  // difference between "set correctly" and "left unknown on purpose".
+  const metadata = {};
+  for (const s of statuses) {
+    if (!s || !s.id || s.valid === false) continue;
+    const adapter = registry.getClient(s.id);
+    if (adapter && typeof adapter.describeMetadata === 'function') {
+      try {
+        metadata[s.id] = adapter.describeMetadata();
+      } catch {
+        metadata[s.id] = { readable: false };
+      }
+    }
+  }
+
   return {
     name: 'Client Integrations',
     clients: statuses,
+    metadata,
   };
 }
 

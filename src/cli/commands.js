@@ -571,7 +571,7 @@ function clientStatus(id) {
   }
 }
 
-async function clientSetup(id, { model, smallModel } = {}) {
+async function clientSetup(id, { model, smallModel, interactive = true } = {}) {
   const { getClient } = require('../clients/registry');
   const client = getClient(id);
   if (!client) {
@@ -583,14 +583,43 @@ async function clientSetup(id, { model, smallModel } = {}) {
   const baseURL = clientBaseURL(client, config);
   const chosenModel = model || config.provider.model;
 
-  // For OpenCode, attach verified model metadata when available (never fabricated).
+  // Attach verified model metadata when available — never fabricated. Clients that
+  // consume model limits (OpenCode's variants/limit block, Hermes' context_length)
+  // get them from here; the rest still receive base URL and model only.
   let modelMeta = null;
-  if (client.id === 'opencode') {
+  try {
+    const { discoverModels } = require('../models');
+    const result = await discoverModels(config, {});
+    if (!result.error) modelMeta = result.models.find((m) => m.id === chosenModel) || null;
+  } catch { /* discovery is best-effort */ }
+
+  let supportedEfforts = config.reasoning?.supported;
+
+  // Detection first. Only when the provider stayed silent AND the user asked for
+  // an interactive terminal do we offer the common windows plus a custom entry —
+  // the alternative would be leaving the client on a hard-coded default.
+  const wantsMetadata = client.consumesModelMetadata === true;
+  if (wantsMetadata && interactive && process.stdin.isTTY) {
+    const { resolveMetadataInteractive } = require('../models/context-presets');
+    const rl = require('node:readline').createInterface({ input: process.stdin, output: process.stdout });
     try {
-      const { discoverModels } = require('../models');
-      const result = await discoverModels(config, {});
-      if (!result.error) modelMeta = result.models.find((m) => m.id === chosenModel) || null;
-    } catch { /* discovery is best-effort */ }
+      const resolved = await resolveMetadataInteractive(rl, { modelId: chosenModel, modelMeta, supportedEfforts });
+      const isUserChoice = (r) => r.value !== null && r.source === 'user-selection';
+      if (isUserChoice(resolved.contextWindow) || isUserChoice(resolved.maxOutputTokens) || isUserChoice(resolved.reasoningEfforts)) {
+        modelMeta = {
+          ...(modelMeta || {}),
+          id: chosenModel,
+          ...(resolved.contextWindow.value ? { contextWindow: resolved.contextWindow.value } : {}),
+          ...(resolved.maxOutputTokens.value ? { maxOutputTokens: resolved.maxOutputTokens.value } : {}),
+          source: 'user-selection',
+        };
+        if (isUserChoice(resolved.reasoningEfforts)) supportedEfforts = resolved.reasoningEfforts.value;
+        console.log('');
+        console.log('   Using your answers (recorded as user-selection, not provider-verified).');
+      }
+    } finally {
+      rl.close();
+    }
   }
 
   let res;
@@ -600,7 +629,7 @@ async function clientSetup(id, { model, smallModel } = {}) {
       model: chosenModel,
       smallModel,
       modelMeta,
-      supportedEfforts: config.reasoning?.supported,
+      supportedEfforts,
     });
   } catch (error) {
     console.error(`❌ ${error.message}`);
@@ -615,6 +644,14 @@ async function clientSetup(id, { model, smallModel } = {}) {
   if (res.backupPath) console.log(`   Backup   : ${res.backupPath}`);
   console.log(`   Endpoint : ${baseURL}${client.protocol === 'anthropic' ? '  (Anthropic Messages ingress)' : '  (OpenAI-compatible ingress)'}`);
   console.log(`   Model    : ${chosenModel}`);
+  if (res.metadata) {
+    const written = res.metadata.written.length ? res.metadata.written.join(', ') : 'none';
+    console.log(`   Metadata : ${written}${res.metadata.skipped.length ? ` (left unknown: ${res.metadata.skipped.join(', ')})` : ''}`);
+    if (!res.metadata.written.length) {
+      console.log('             The provider publishes no limits for this model, so nothing was guessed.');
+      console.log('             Re-run `promptrelay client setup` in a terminal to set them by hand.');
+    }
+  }
   console.log('   Note     : No upstream provider key was written to the client; PromptRelay holds your credentials.');
   console.log('');
 }
