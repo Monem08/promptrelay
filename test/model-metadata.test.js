@@ -345,3 +345,39 @@ describe('client capability flags', () => {
     assert.notEqual(claude.consumesModelMetadata, true);
   });
 });
+describe('wizard: model pre-fill must not leak across providers', () => {
+  const presets = require('../src/providers/presets');
+
+  // Mirrors the helper in cli/wizard.js: carry the current model only when the
+  // user is reconfiguring the SAME endpoint.
+  function modelDefault(providerType, current, fallback) {
+    const provider = presets.getPreset(providerType).provider;
+    const currentBase = String(current.provider?.baseURL || '').replace(/\/+$/, '');
+    const presetBase = String(provider.baseURL || '').replace(/\/+$/, '');
+    const sameEndpoint = Boolean(currentBase) && currentBase.toLowerCase() === presetBase.toLowerCase();
+    return sameEndpoint ? (current.provider?.model || fallback) : fallback;
+  }
+
+  it('uses the new provider\'s model when switching endpoints', () => {
+    const onOpenRouter = { provider: { baseURL: 'https://openrouter.ai/api/v1', model: 'openrouter/auto' } };
+    // The reported bug: choosing OpenCode Zen pre-filled "openrouter/auto",
+    // an id that does not exist on Zen.
+    assert.equal(modelDefault('opencode-zen', onOpenRouter, 'space-bunny-free'), 'space-bunny-free');
+  });
+
+  it('keeps the user\'s model when re-running the same provider', () => {
+    const onZen = { provider: { baseURL: 'https://opencode.ai/zen/v1', model: 'big-pickle' } };
+    assert.equal(modelDefault('opencode-zen', onZen, 'space-bunny-free'), 'big-pickle');
+    const onOR = { provider: { baseURL: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-5' } };
+    assert.equal(modelDefault('openrouter', onOR, 'openrouter/auto'), 'anthropic/claude-sonnet-5');
+  });
+
+  it('falls back to the preset default on a fresh install', () => {
+    assert.equal(modelDefault('opencode-zen', {}, 'space-bunny-free'), 'space-bunny-free');
+  });
+
+  it('compares endpoints case-insensitively and ignores trailing slashes', () => {
+    const messy = { provider: { baseURL: 'https://OpenCode.ai/zen/v1/', model: 'longcat-2.5-preview-free' } };
+    assert.equal(modelDefault('opencode-zen', messy, 'space-bunny-free'), 'longcat-2.5-preview-free');
+  });
+});

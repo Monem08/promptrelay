@@ -31,6 +31,10 @@ All notable changes to PromptRelay will be documented here.
   - `zenFreeTier` diagnostics on `/health` (enabled state, User-Agent, session counts — never the ids themselves).
   - 37 new tests in `test/zen-free-tier.test.js` covering header construction, session stability and eviction, operator override precedence, config validation, preset opt-in isolation, and gateway end-to-end behaviour against a relay stub that rejects non-OpenCode requests.
 
+### Fixed
+
+- **Setup wizard leaked the previous provider's model id**: switching providers pre-filled the model prompt with `current.provider.model` regardless of which provider was chosen, so OpenRouter → OpenCode Zen asked for `Model [openrouter/auto]:` — an id that does not exist on Zen. The current model is now carried over only when the target endpoint matches the configured one (case-insensitive, trailing slash ignored); otherwise the new preset's own default is offered. Re-running the same provider still keeps the user's model.
+
 ### Changed
 
 - `providerHeaders(config)` accepts an optional `{ clientId, ip }` context; `requestContext(req)` derives it from an Express request. All existing call sites keep working unchanged.

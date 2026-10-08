@@ -71,24 +71,43 @@ async function providerWizard(rl, current = readConfig()) {
   const provider = preset.provider;
   let reasoning = preset.reasoning;
 
+  /**
+   * Model pre-fill for the prompt.
+   *
+   * Carrying the *current* model over is only correct when the user is
+   * reconfiguring the SAME endpoint — otherwise switching OpenRouter →
+   * OpenCode Zen pre-fills "openrouter/auto", a model id that does not exist on
+   * the newly chosen provider, and the user has to notice and overwrite it.
+   * Same endpoint → keep what they had; different endpoint → the preset's own
+   * default, which is a model that provider actually serves.
+   */
+  const sameEndpoint = (() => {
+    const currentBase = String(current.provider?.baseURL || '').replace(/\/+$/, '');
+    const presetBase = String(provider.baseURL || '').replace(/\/+$/, '');
+    return Boolean(currentBase) && currentBase.toLowerCase() === presetBase.toLowerCase();
+  })();
+  const modelDefault = (fallback) => (sameEndpoint ? (current.provider?.model || fallback) : fallback);
+
   if (providerType === 'openrouter') {
-    provider.model = await askRequired(rl, 'Model', current.provider?.model || 'openrouter/auto');
+    provider.model = await askRequired(rl, 'Model', modelDefault('openrouter/auto'));
     const key = await ask(rl, `OpenRouter API key (stored locally in ${io.ENV_FILE})`);
     if (key) io.writeEnvValue(provider.apiKeyEnv, key);
   } else if (providerType === 'opencode-zen') {
-    provider.model = await askRequired(rl, 'Model', current.provider?.model || 'space-bunny-free');
+    provider.model = await askRequired(rl, 'Model', modelDefault('space-bunny-free'));
     // The free `-free` models work without an account. A key is optional and
     // only switches requests onto your own Zen quota (BYOK), so this must not
     // be a required prompt.
     const key = await ask(rl, 'OpenCode API key — press Enter to skip (anonymous free tier)');
     if (key) io.writeEnvValue(provider.apiKeyEnv, key);
   } else if (providerType === 'ollama-cloud') {
-    provider.model = await askRequired(rl, 'Model (e.g. gpt-oss:120b)', current.provider?.model || '');
+    // No usable default: Ollama Cloud serves many tags and a wrong guess is worse
+    // than an empty prompt that forces the user to name what they pulled.
+    provider.model = await askRequired(rl, 'Model (e.g. gpt-oss:120b)', modelDefault(''));
     const key = await ask(rl, `Ollama API key (stored locally in ${io.ENV_FILE})`);
     if (key) io.writeEnvValue(provider.apiKeyEnv, key);
   } else if (providerType === 'ollama-local') {
     provider.baseURL = await askRequired(rl, 'Base URL', provider.baseURL);
-    provider.model = await askRequired(rl, 'Model', current.provider?.model || '');
+    provider.model = await askRequired(rl, 'Model', modelDefault(''));
   } else if (providerType === 'custom-openai') {
     provider.name = await askRequired(rl, 'Provider name', 'Custom Provider');
     provider.baseURL = await askRequired(rl, 'Base URL (include /v1 if your provider uses it)');
