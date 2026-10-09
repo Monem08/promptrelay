@@ -33,6 +33,13 @@ All notable changes to PromptRelay will be documented here.
 
 ### Fixed
 
+- **413 `request entity too large` at ~120K tokens, stranding long agent sessions**:
+  - `server.bodyLimitBytes` defaulted to 2 MB. PromptRelay advertises the model's context window to OpenCode/Claude Code/Hermes, so a client fills to that number and only then meets a wire limit it was never told about. A coding-agent transcript carries whole files in tool results, measured at ~17 bytes per token, so 2 MB was only ~120K tokens of real project content — far inside the window the client had been given, and the client never compressed because it believed it had room.
+  - Reproduced against the live relay: a 2.09 MB tool-result transcript returned `413`; 1.99 MB returned `200`. Both are legal sizes for a 200K+ context model.
+  - Default raised to 32 MB in `config/schema.js`, `server/app.js` and `config/migrate.js` — roughly 2M tokens of ordinary text, so the advertised context window is the binding constraint rather than the body limit.
+  - The 413 response now names the limit, the config file and the setting to change. A bare "request entity too large" reads like a provider fault and gives the user nothing to act on.
+  - Security test updated rather than weakened: still asserts oversized bodies are rejected, now against the real limit, plus new coverage that a 2.5 MB agent transcript is accepted and that a 413 is actionable.
+
 - **Setup wizard leaked the previous provider's model id**: switching providers pre-filled the model prompt with `current.provider.model` regardless of which provider was chosen, so OpenRouter → OpenCode Zen asked for `Model [openrouter/auto]:` — an id that does not exist on Zen. The current model is now carried over only when the target endpoint matches the configured one (case-insensitive, trailing slash ignored); otherwise the new preset's own default is offered. Re-running the same provider still keeps the user's model.
 
 ### Changed

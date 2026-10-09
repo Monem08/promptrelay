@@ -89,7 +89,7 @@ const MIGRATIONS = {
 
     // Add body limit to server
     if (next.server && !next.server.bodyLimitBytes) {
-      next.server.bodyLimitBytes = 2 * 1024 * 1024;
+      next.server.bodyLimitBytes = 32 * 1024 * 1024;
     }
 
     // Upgrade logging to include mode

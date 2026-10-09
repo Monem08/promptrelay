@@ -281,9 +281,10 @@ describe('PromptRelay Security & Hardening', () => {
       server.close(done);
     });
 
-    it('rejects oversized JSON payload (> 2MB default)', async () => {
-      // Create payload larger than 2MB
-      const bigString = 'x'.repeat(2.5 * 1024 * 1024);
+    it('rejects a payload above the configured default body limit', async () => {
+      // The default is 32 MB (must exceed what a client sends when it fills the
+      // context window PromptRelay advertised). Go past it, not past the old 2 MB.
+      const bigString = 'x'.repeat(33 * 1024 * 1024);
       const payload = JSON.stringify({ prompt: bigString });
 
       const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
@@ -294,6 +295,44 @@ describe('PromptRelay Security & Hardening', () => {
 
       // Express body parser returns 413 Payload Too Large
       assert.equal(res.status, 413);
+    });
+
+    it('still accepts a large-but-legal agent transcript', async () => {
+      // ~2 MB of tool-shaped content: the size that used to be rejected and that
+      // a real coding-agent request hits around 120K tokens.
+      const bigString = 'x'.repeat(2.5 * 1024 * 1024);
+      const payload = JSON.stringify({ prompt: bigString });
+
+      const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: payload,
+      });
+
+      // Not 413: the body limit must not be the binding constraint while the
+      // advertised context window is larger than this.
+      assert.notEqual(res.status, 413);
+    });
+
+    it('a 413 names the limit and the setting to change', async () => {
+      const app = createApp();
+      const s = http.createServer(app);
+      await new Promise((r) => s.listen(0, '127.0.0.1', r));
+      const p = s.address().port;
+      try {
+        const res = await fetch(`http://127.0.0.1:${p}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt: 'x'.repeat(33 * 1024 * 1024) }),
+        });
+        assert.equal(res.status, 413);
+        const data = await res.json();
+        assert.equal(data.error.type, 'payload_too_large');
+        assert.match(data.error.message, /bodyLimitBytes/, 'must say which setting to change');
+        assert.match(data.error.message, /MB|MB\b/, 'must say what the limit was');
+      } finally {
+        await new Promise((r) => s.close(r));
+      }
     });
   });
 });

@@ -12,6 +12,13 @@ const logger = require('../telemetry/logger');
 const routing = require('../routing/engine');
 
 const VERSION = require('../../package.json').version;
+/** Human-readable byte size for error messages. */
+function formatBytes(n) {
+  if (!Number.isFinite(n)) return 'the configured limit';
+  const mb = n / (1024 * 1024);
+  return mb >= 1 ? `${Math.round(mb)} MB` : `${Math.round(n / 1024)} KB`;
+}
+
 
 function timingSafeEqualStr(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -99,8 +106,15 @@ function createApp() {
   const app = express();
   app.disable('x-powered-by');
 
-  // Configurable body limit — never use a massive default.
-  const bodyLimit = initialConfig.server?.bodyLimitBytes || (2 * 1024 * 1024);
+  // Configurable body limit. The default must be large enough to carry a request
+  // that a client was *told* it could send: PromptRelay advertises the model's
+  // context window to OpenCode/Claude Code/Hermes, so a client fills to that
+  // number and only then discovers the wire limit. At 2 MB a coding-agent
+  // transcript — where tool results are whole files — hit the ceiling at roughly
+  // 120K tokens, well inside a 200K+ window, and the client had no way to know.
+  // 32 MB ≈ 2M tokens of ordinary text and ~8M of tool-heavy content, so the
+  // advertised window is the binding constraint rather than this one.
+  const bodyLimit = initialConfig.server?.bodyLimitBytes || (32 * 1024 * 1024);
   app.use(express.json({ limit: bodyLimit }));
 
   function configOrError(res) {
@@ -283,9 +297,19 @@ function createApp() {
     logger.error('PromptRelay error:', error?.message || error);
     if (res.headersSent) return next(error);
     const status = error.status || error.statusCode || 500;
+    // A bare "request entity too large" tells the user nothing actionable and,
+    // worse, looks like the provider's fault. Say what the limit was and what to
+    // change — this is the error that strands a long-running coding session.
+    const message = status === 413
+      ? `Request body exceeded PromptRelay's limit of ${formatBytes(bodyLimit)}. `
+        + `Raise server.bodyLimitBytes in ${initialConfig.paths?.configFile || 'promptrelay.json'}, `
+        + `or let the client compress earlier by giving it an accurate context window `
+        + `(its model entry). Tool-heavy transcripts reach ~17 bytes per token, `
+        + `so 2 MB was only ~120K tokens of real project content.`
+      : (error?.message || 'Internal PromptRelay error');
     return res.status(status).json({
       error: {
-        message: error?.message || 'Internal PromptRelay error',
+        message,
         type: status === 413 ? 'payload_too_large' : 'promptrelay_error',
       },
     });

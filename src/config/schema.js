@@ -20,7 +20,10 @@ const DEFAULTS = {
   server: {
     host: '127.0.0.1',
     port: 4141,
-    bodyLimitBytes: 2 * 1024 * 1024, // 2 MB — sensible default
+    // 32 MB. Must comfortably exceed what a client sends when it fills the
+    // context window PromptRelay advertised — otherwise the client is told it
+    // may send N tokens and then rejected at the wire. See server/app.js.
+    bodyLimitBytes: 32 * 1024 * 1024,
   },
   prompt: {
     mode: 'replace',
